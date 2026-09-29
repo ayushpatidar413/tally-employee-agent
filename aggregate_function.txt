@@ -1,0 +1,825 @@
+def _extract_aggregate(
+    question: str,
+    dataset: Dict[str, Any],
+    schema: List[Dict[str, Any]],
+    rows: List[Dict[str, Any]],
+) -> tuple[Optional[str], Optional[str]]:
+    question_norm = _normalize_text(question)
+
+    function = None
+
+    # --------------------------------------------------------
+    # DETECT AGGREGATE FUNCTION
+    # --------------------------------------------------------
+
+    if re.search(
+        r"\b(?:average|avg|mean)\b",
+        question_norm,
+    ):
+        function = "average"
+
+    elif re.search(
+        r"\b(?:sum|total)\b",
+        question_norm,
+    ):
+        function = "sum"
+
+    elif re.search(
+        r"\b(?:maximum|max|highest)\b",
+        question_norm,
+    ):
+        function = "max"
+
+    elif re.search(
+        r"\b(?:minimum|min|lowest)\b",
+        question_norm,
+    ):
+        function = "min"
+
+    elif re.search(
+        r"\b(?:count|how many|number of)\b",
+        question_norm,
+    ):
+        function = "count"
+        # --------------------------------------------------------
+    # ATTENDANCE STATUS SUMMARY
+    #
+    # "summary" by attendance status means count records
+    # for each status.
+    # --------------------------------------------------------
+
+    if (
+        not function
+        and _normalize_text(
+            dataset.get("data_type")
+        ) == "attendance"
+        and re.search(
+            r"\battendance\b",
+            question_norm,
+        )
+        and re.search(
+            r"\bstatus\b",
+            question_norm,
+        )
+        and re.search(
+            r"\b(?:summary|breakdown|distribution)\b",
+            question_norm,
+        )
+    ):
+        function = "count"
+
+    elif re.search(
+        r"\bhow much\b",
+        question_norm,
+    ):
+        function = "sum"
+
+        # --------------------------------------------------------
+    # SALES / REVENUE BUSINESS TERMS
+    # --------------------------------------------------------
+    # Examples:
+    #   product wise sales
+    #   customer wise sales
+    #   total sales
+    #   sales by customer
+    #   revenue by product
+    # --------------------------------------------------------
+
+        if not function:
+         sales_words = {
+            "sale",
+            "sales",
+            "revenue",
+            "billing",
+            "turnover",
+        }
+
+        question_tokens = set(
+            _tokens(question_norm)
+        )
+
+        if question_tokens.intersection(sales_words):
+            function = "sum"
+
+    # ========================================================
+    # DYNAMIC GROUP-WISE NUMERIC COLUMN FALLBACK
+    # ========================================================
+    #
+    # Examples:
+    #
+    #   salesperson-wise GST
+    #   warehouse-wise discount
+    #   customer-wise amount
+    #   product-wise quantity
+    #
+    # If the question contains a "-wise" grouping and a
+    # numeric source column, default to SUM when no explicit
+    # aggregation function was supplied.
+    #
+    # This is intentionally dynamic. It does NOT contain
+    # hardcoded GST / Warehouse / Salesperson names.
+    # ========================================================
+
+    if not function and re.search(
+        r"\b[\w\s]+-wise\b",
+        question_norm,
+    ):
+        dataset_columns = _dataset_columns(
+            dataset,
+            schema,
+            rows,
+        )
+
+        numeric_columns = []
+
+        # ----------------------------------------------------
+        # First: use schema data types
+        # ----------------------------------------------------
+
+        for item in schema:
+            data_type = _normalize_text(
+                item.get("data_type")
+            )
+
+            if data_type in {
+                "numeric",
+                "number",
+                "integer",
+                "float",
+            }:
+                source = item.get(
+                    "source_column"
+                )
+
+                if source:
+                    numeric_columns.append(
+                        source
+                    )
+
+        # ----------------------------------------------------
+        # Fallback: detect numeric columns from actual rows
+        # ----------------------------------------------------
+
+        if not numeric_columns:
+            for column in dataset_columns:
+                values = [
+                    _to_number(row.get(column))
+                    for row in rows[:100]
+                ]
+
+                valid_values = sum(
+                    value is not None
+                    for value in values
+                )
+
+                if (
+                    valid_values
+                    >= max(
+                        1,
+                        len(values) // 2,
+                    )
+                ):
+                    numeric_columns.append(
+                        column
+                    )
+
+        # ----------------------------------------------------
+        # Find which numeric column is explicitly mentioned
+        # in the question.
+        # ----------------------------------------------------
+
+        question_text = _normalize_text(
+            question
+        )
+
+        for column in numeric_columns:
+            column_text = _normalize_text(
+                column
+            )
+
+            if not column_text:
+                continue
+
+            if re.search(
+                rf"\b{re.escape(column_text)}\b",
+                question_text,
+            ):
+                function = "sum"
+                break
+
+        # ----------------------------------------------------
+        # Also support normalized multi-word column matching.
+        # Example:
+        #
+        # "total amount" -> Total Amount
+        # "gst"          -> GST
+        # "discount"     -> Discount
+        # ----------------------------------------------------
+
+        if not function:
+            question_tokens = set(
+                _tokens(question_text)
+            )
+
+            for column in numeric_columns:
+                column_tokens = set(
+                    _tokens(
+                        _normalize_text(column)
+                    )
+                )
+
+                if (
+                    column_tokens
+                    and column_tokens.issubset(
+                        question_tokens
+                    )
+                ):
+                    function = "sum"
+                    break
+
+        # ========================================================
+    # DYNAMIC GROUP-WISE NUMERIC COLUMN FALLBACK
+    # ========================================================
+    #
+    # Examples:
+    #
+    #   salesperson-wise GST
+    #   warehouse-wise discount
+    #   product-wise quantity
+    #   customer-wise transport charges
+    #
+    # If no explicit aggregate function was detected,
+    # a "-wise <numeric column>" query defaults to SUM.
+    #
+    # This uses the actual uploaded dataset columns.
+    # No GST / Discount / Salesperson names are hardcoded.
+    # ========================================================
+
+    if not function and re.search(
+        r"\b[\w\s]+-wise\b",
+        question_norm,
+    ):
+        dataset_columns = _dataset_columns(
+            dataset,
+            schema,
+            rows,
+        )
+
+        numeric_columns = []
+
+        # ----------------------------------------------------
+        # Get numeric columns from schema
+        # ----------------------------------------------------
+
+        for item in schema:
+            data_type = _normalize_text(
+                item.get("data_type")
+            )
+
+            if data_type in {
+                "numeric",
+                "number",
+                "integer",
+                "float",
+            }:
+                source = item.get(
+                    "source_column"
+                )
+
+                if source and source in dataset_columns:
+                    numeric_columns.append(
+                        source
+                    )
+
+        # ----------------------------------------------------
+        # Fallback: detect numeric columns from actual rows
+        # ----------------------------------------------------
+
+        if not numeric_columns:
+            for column in dataset_columns:
+                values = [
+                    _to_number(row.get(column))
+                    for row in rows[:100]
+                ]
+
+                valid_values = sum(
+                    value is not None
+                    for value in values
+                )
+
+                if (
+                    valid_values
+                    >= max(
+                        1,
+                        len(values) // 2,
+                    )
+                ):
+                    numeric_columns.append(
+                        column
+                    )
+
+        # ----------------------------------------------------
+        # Resolve the actual source column dynamically.
+        #
+        # IMPORTANT:
+        # Return the ORIGINAL source column, not a normalized
+        # version such as "TotalAmount".
+        # ----------------------------------------------------
+
+        for column in numeric_columns:
+            column_text = _normalize_text(
+                column
+            )
+
+            if not column_text:
+                continue
+
+            # Exact normalized column match.
+            if re.search(
+                rf"\b{re.escape(column_text)}\b",
+                question_norm,
+            ):
+                function = "sum"
+                break
+
+        # ----------------------------------------------------
+        # Multi-word / token-based matching
+        # ----------------------------------------------------
+
+        if not function:
+            question_tokens = set(
+                _tokens(question_norm)
+            )
+
+            for column in numeric_columns:
+                column_tokens = set(
+                    _tokens(
+                        _normalize_text(column)
+                    )
+                )
+
+                if (
+                    column_tokens
+                    and column_tokens.issubset(
+                        question_tokens
+                    )
+                ):
+                    function = "sum"
+                    break
+
+        # ----------------------------------------------------
+        # Return the REAL source column.
+        # ----------------------------------------------------
+
+        if function:
+            for column in numeric_columns:
+                column_text = _normalize_text(
+                    column
+                )
+
+                if (
+                    column_text
+                    and column_text in question_norm
+                ):
+                    return function, column
+
+                column_tokens = set(
+                    _tokens(column_text)
+                )
+
+                question_tokens = set(
+                    _tokens(question_norm)
+                )
+
+                if (
+                    column_tokens
+                    and column_tokens.issubset(
+                        question_tokens
+                    )
+                ):
+                    return function, column
+
+        # ========================================================
+    # DYNAMIC GROUP-WISE NUMERIC COLUMN FALLBACK
+    # ========================================================
+    #
+    # Examples:
+    #
+    #   salesperson-wise GST
+    #   warehouse-wise discount
+    #   product-wise quantity
+    #   customer-wise transport charges
+    #
+    # If no explicit aggregate function was detected,
+    # a "-wise <numeric column>" query defaults to SUM.
+    #
+    # This uses the actual uploaded dataset columns.
+    # No GST / Discount / Salesperson names are hardcoded.
+    # ========================================================
+
+    if not function and re.search(
+        r"\b[\w\s]+-wise\b",
+        question_norm,
+    ):
+        dataset_columns = _dataset_columns(
+            dataset,
+            schema,
+            rows,
+        )
+
+        numeric_columns = []
+
+        # ----------------------------------------------------
+        # Get numeric columns from schema
+        # ----------------------------------------------------
+
+        for item in schema:
+            data_type = _normalize_text(
+                item.get("data_type")
+            )
+
+            if data_type in {
+                "numeric",
+                "number",
+                "integer",
+                "float",
+            }:
+                source = item.get(
+                    "source_column"
+                )
+
+                if source and source in dataset_columns:
+                    numeric_columns.append(
+                        source
+                    )
+
+        # ----------------------------------------------------
+        # Fallback: detect numeric columns from actual rows
+        # ----------------------------------------------------
+
+        if not numeric_columns:
+            for column in dataset_columns:
+                values = [
+                    _to_number(row.get(column))
+                    for row in rows[:100]
+                ]
+
+                valid_values = sum(
+                    value is not None
+                    for value in values
+                )
+
+                if (
+                    valid_values
+                    >= max(
+                        1,
+                        len(values) // 2,
+                    )
+                ):
+                    numeric_columns.append(
+                        column
+                    )
+
+        # ----------------------------------------------------
+        # Resolve the actual source column dynamically.
+        #
+        # IMPORTANT:
+        # Return the ORIGINAL source column, not a normalized
+        # version such as "TotalAmount".
+        # ----------------------------------------------------
+
+        for column in numeric_columns:
+            column_text = _normalize_text(
+                column
+            )
+
+            if not column_text:
+                continue
+
+            # Exact normalized column match.
+            if re.search(
+                rf"\b{re.escape(column_text)}\b",
+                question_norm,
+            ):
+                function = "sum"
+                break
+
+        # ----------------------------------------------------
+        # Multi-word / token-based matching
+        # ----------------------------------------------------
+
+        if not function:
+            question_tokens = set(
+                _tokens(question_norm)
+            )
+
+            for column in numeric_columns:
+                column_tokens = set(
+                    _tokens(
+                        _normalize_text(column)
+                    )
+                )
+
+                if (
+                    column_tokens
+                    and column_tokens.issubset(
+                        question_tokens
+                    )
+                ):
+                    function = "sum"
+                    break
+
+        # ----------------------------------------------------
+        # Return the REAL source column.
+        # ----------------------------------------------------
+
+        if function:
+            for column in numeric_columns:
+                column_text = _normalize_text(
+                    column
+                )
+
+                if (
+                    column_text
+                    and column_text in question_norm
+                ):
+                    return function, column
+
+                column_tokens = set(
+                    _tokens(column_text)
+                )
+
+                question_tokens = set(
+                    _tokens(question_norm)
+                )
+
+                if (
+                    column_tokens
+                    and column_tokens.issubset(
+                        question_tokens
+                    )
+                ):
+                    return function, column
+
+    if not function:
+        return None, None
+
+    # ========================================================
+    # SPECIAL BUSINESS TERMS
+    # Vyapar-style questions often use:
+    #
+    #   sales
+    #   sale
+    #   revenue
+    #   billing
+    #   turnover
+    #
+    # instead of the actual numeric column name:
+    #
+    #   Total Amount
+    #   Amount
+    #   Sales Amount
+    #
+    # Therefore "total sales", "highest sale", etc.
+    # should resolve to the appropriate numeric amount column.
+    # ========================================================
+
+    sales_words = {
+        "sale",
+        "sales",
+        "revenue",
+        "billing",
+        "turnover",
+    }
+
+    question_tokens = set(
+        _tokens(question_norm)
+    )
+
+    has_sales_term = bool(
+        question_tokens.intersection(
+            sales_words
+        )
+    )
+
+    if has_sales_term:
+        numeric_columns = []
+
+        # ----------------------------------------------------
+        # Get numeric columns from schema
+        # ----------------------------------------------------
+
+        for item in schema:
+            data_type = _normalize_text(
+                item.get("data_type")
+            )
+
+            if data_type in {
+                "numeric",
+                "number",
+                "integer",
+                "float",
+            }:
+                source = item.get(
+                    "source_column"
+                )
+
+                if source:
+                    numeric_columns.append(
+                        source
+                    )
+
+        # ----------------------------------------------------
+        # Detect numeric columns from actual rows
+        # ----------------------------------------------------
+
+        if not numeric_columns:
+            for column in _dataset_columns(
+                dataset,
+                schema,
+                rows,
+            ):
+                values = [
+                    _to_number(row.get(column))
+                    for row in rows[:100]
+                ]
+
+                valid_values = sum(
+                    value is not None
+                    for value in values
+                )
+
+                if (
+                    valid_values
+                    >= max(
+                        1,
+                        len(values) // 2,
+                    )
+                ):
+                    numeric_columns.append(
+                        column
+                    )
+
+        # ----------------------------------------------------
+        # Prefer amount/sales/revenue/value columns
+        # ----------------------------------------------------
+
+        preferred_words = (
+            "amount",
+            "sales amount",
+            "sale amount",
+            "total",
+            "revenue",
+            "turnover",
+            "price",
+            "value",
+        )
+
+        for column in numeric_columns:
+            normalized = _normalize_column(
+                column
+            )
+
+            if any(
+                word in normalized
+                for word in preferred_words
+            ):
+                return function, column
+
+        # If there is exactly one numeric column,
+        # use it as the sales value.
+        if len(numeric_columns) == 1:
+            return function, numeric_columns[0]
+
+    # ========================================================
+    # EXPLICIT AGGREGATE COLUMN
+    # ========================================================
+    #
+    # Examples:
+    #   total amount
+    #   sum of amount
+    #   average quantity
+    #   highest salary
+    # ========================================================
+
+    patterns = [
+        r"(?:sum|total|average|avg|mean|max|maximum|min|minimum|highest|lowest)"
+        r"\s+(?:of\s+)?(.+?)(?:\s+by\s+|\s+per\s+|\s+wise\b|\s+where\s+|$)",
+
+        r"(?:sum|total|average|avg|mean|max|maximum|min|minimum|highest|lowest)"
+        r"\s+(.+?)(?:\s+by\s+|\s+per\s+|\s+wise\b|\s+where\s+|$)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(
+            pattern,
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+
+        if not match:
+            continue
+
+        candidate = match.group(1).strip()
+
+        candidate = re.sub(
+            r"\b(?:the|amount|value|records?|data)\b",
+            " ",
+            candidate,
+        ).strip()
+
+        # Do not attempt to resolve grouping words
+        # as aggregate columns.
+        candidate = re.sub(
+            r"\b(?:party|customer|product|item)\s+wise\b",
+            " ",
+            candidate,
+        ).strip()
+
+        if not candidate:
+            continue
+
+        resolved = _resolve_column(
+            candidate,
+            dataset,
+            schema,
+            rows,
+        )
+
+        if resolved:
+            return function, resolved
+
+    # ========================================================
+    # GENERIC NUMERIC COLUMN FALLBACK
+    # ========================================================
+
+    if function != "count":
+        numeric_columns = []
+
+        for item in schema:
+            data_type = _normalize_text(
+                item.get("data_type")
+            )
+
+            if data_type in {
+                "numeric",
+                "number",
+                "integer",
+                "float",
+            }:
+                source = item.get(
+                    "source_column"
+                )
+
+                if source:
+                    numeric_columns.append(
+                        source
+                    )
+
+        if not numeric_columns:
+            for column in _dataset_columns(
+                dataset,
+                schema,
+                rows,
+            ):
+                values = [
+                    _to_number(row.get(column))
+                    for row in rows[:100]
+                ]
+
+                if values and sum(
+                    value is not None
+                    for value in values
+                ) >= max(
+                    1,
+                    len(values) // 2,
+                ):
+                    numeric_columns.append(
+                        column
+                    )
+
+        if len(numeric_columns) == 1:
+            return function, numeric_columns[0]
+
+        # Prefer amount-like columns.
+        for column in numeric_columns:
+            normalized = _normalize_column(
+                column
+            )
+
+            if any(
+                word in normalized
+                for word in (
+                    "amount",
+                    "total",
+                    "salary",
+                    "price",
+                    "value",
+                    "revenue",
+                )
+            ):
+                return function, column
+
+    return function, None
+
+

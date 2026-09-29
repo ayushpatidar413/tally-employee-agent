@@ -1,0 +1,101 @@
+            schema,
+            rows,
+        )
+    )
+    # --------------------------------------------------------
+    # Ranking questions.
+    #
+    # "Which customer has highest sales?"
+    # means:
+    #   GROUP BY customer
+    #   SUM sales
+    #   ORDER BY total sales DESC
+    #
+    # Ordinary "highest sale" queries are not changed because
+    # they do not have a group_by column.
+    # --------------------------------------------------------
+
+    question_norm = _normalize_text(
+        question
+    )
+
+    ranking_group_query = bool(
+        group_by
+        and re.search(
+            r"\b(?:highest|maximum|most|top)\b",
+            question_norm,
+        )
+        and re.search(
+            r"\b(?:sales?|revenue|billing|turnover)\b",
+            question_norm,
+        )
+    )
+
+    lowest_ranking_group_query = bool(
+        group_by
+        and re.search(
+            r"\b(?:lowest|minimum|least)\b",
+            question_norm,
+        )
+        and re.search(
+            r"\b(?:sales?|revenue|billing|turnover)\b",
+            question_norm,
+        )
+    )
+
+    if ranking_group_query or lowest_ranking_group_query:
+        aggregate_function = "sum"
+    # --------------------------------------------------------
+    # Attendance summary default.
+    #
+    # "attendance status summary" means:
+    #   GROUP BY Attendance Status
+    #   COUNT rows in each status
+    # --------------------------------------------------------
+
+        if (
+            group_by
+            and aggregate_function is None
+            and "summary" in question.lower()
+            and (
+                 dataset.get("data_type") == "attendance"
+                 or dataset.get("dataset_type") == "attendance"
+                )
+        ):
+            aggregate_function = "count"
+            aggregate_column = None
+
+    intent = _detect_intent(
+        question,
+        requested_columns,
+        filters,
+        group_by,
+        aggregate_function,
+    )
+
+    # --------------------------------------------------------
+    # Apply filters.
+    # --------------------------------------------------------
+
+    filtered_rows = _apply_filters(
+         rows,
+         filters,
+     )
+
+    # --------------------------------------------------------
+    # Employee-level query on attendance data.
+    #
+    # Keep daily attendance rows for attendance queries,
+    # but return one row per employee for employee queries.
+    # --------------------------------------------------------
+
+    employee_level_query = _is_employee_level_query(
+        question,
+        dataset,
+    )
+
+    if employee_level_query:
+        filtered_rows = _deduplicate_employee_rows(
+            filtered_rows
+        )
+        # --------------------------------------------------------

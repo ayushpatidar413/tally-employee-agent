@@ -1,0 +1,450 @@
+from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import MemorySaver
+from graph.state import HRState
+from graph.dynamic_workflow import dynamic_agent
+from graph.nodes import (
+    employee_detection_node,
+    llm_router_node,
+
+    employee_node,
+    attendance_node,
+    leave_node,
+    salary_node,
+    pf_node,
+    summary_node,
+    ranking_node,
+
+    complete_employee_data_node,
+
+    parallel_start_node,
+    parallel_salary_node,
+    parallel_attendance_node,
+    parallel_leave_node,
+    parallel_pf_node,
+    parallel_experience_node,
+    parallel_join_node,
+    all_uploaded_employees_node,
+    answer_generation_node,
+)
+
+
+# ============================================================
+# ROUTER
+# ============================================================
+
+def route_query(state):
+    intent = state.get("intent", "general")
+
+    if intent == "attendance":
+        return "attendance"
+    
+    if intent == "dynamic_data":
+        return "dynamic_data"
+
+    if intent == "leave":
+        return "leave"
+
+    if intent == "salary":
+        return "salary"
+
+    if intent == "pf":
+        return "pf"
+
+    if intent == "summary":
+        return "parallel_start"
+
+    if intent == "ranking":
+        return "ranking"
+
+    if intent == "all_employees":
+        return "all_employees"
+
+    if intent == "complete_details":
+        return "complete_employee_data"
+
+    if intent == "experience":
+        return "employee"
+
+    if intent == "employee_id":
+        return "employee"
+
+    return "employee"
+def dynamic_data_node(state):
+    """
+    Execute dataset/report queries through the dynamic data agent.
+    """
+
+    question = state.get(
+        "user_query",
+        ""
+    )
+
+    result = dynamic_agent.invoke(
+        {
+            "question": question
+        }
+    )
+
+    return {
+        **state,
+        "answer": result.get(
+            "answer",
+            ""
+        ),
+        "final_answer": result.get(
+            "answer",
+            ""
+        ),
+        "agent_result": result.get(
+            "result"
+        ),
+    }
+
+# ============================================================
+# CREATE GRAPH
+# ============================================================
+
+builder = StateGraph(HRState)
+
+
+# ============================================================
+# NORMAL NODES
+# ============================================================
+
+builder.add_node(
+    "employee_detection",
+    employee_detection_node
+)
+
+builder.add_node(
+    "router",
+    llm_router_node
+)
+
+builder.add_node(
+    "employee",
+    employee_node
+)
+
+builder.add_node(
+    "all_employees",
+    all_uploaded_employees_node
+)
+
+builder.add_node(
+    "attendance",
+    attendance_node
+)
+
+builder.add_node(
+    "leave",
+    leave_node
+)
+
+builder.add_node(
+    "salary",
+    salary_node
+)
+
+builder.add_node(
+    "pf",
+    pf_node
+)
+
+builder.add_node(
+    "summary",
+    summary_node
+)
+
+builder.add_node(
+    "ranking",
+    ranking_node
+)
+builder.add_node(
+    "dynamic_data",
+    dynamic_data_node
+)
+
+builder.add_node(
+    "complete_employee_data",
+    complete_employee_data_node
+)
+
+
+# ============================================================
+# PARALLEL NODES
+# ============================================================
+
+builder.add_node(
+    "parallel_start",
+    parallel_start_node
+)
+
+builder.add_node(
+    "parallel_salary",
+    parallel_salary_node
+)
+
+builder.add_node(
+    "parallel_attendance",
+    parallel_attendance_node
+)
+
+builder.add_node(
+    "parallel_leave",
+    parallel_leave_node
+)
+
+builder.add_node(
+    "parallel_pf",
+    parallel_pf_node
+)
+
+builder.add_node(
+    "parallel_experience",
+    parallel_experience_node
+)
+
+builder.add_node(
+    "parallel_join",
+    parallel_join_node
+)
+
+
+# ============================================================
+# FINAL ANSWER
+# ============================================================
+
+builder.add_node(
+    "answer_generation",
+    answer_generation_node
+)
+
+
+# ============================================================
+# START
+# ============================================================
+
+builder.add_edge(
+    START,
+    "employee_detection"
+)
+
+
+# ============================================================
+# EMPLOYEE DETECTION → ROUTER
+# ============================================================
+
+builder.add_edge(
+    "employee_detection",
+    "router"
+)
+
+
+# ============================================================
+# ROUTER
+# ============================================================
+
+builder.add_conditional_edges(
+    "router",
+    route_query,
+    {
+        "employee": "employee",
+        "attendance": "attendance",
+        "dynamic_data": "dynamic_data",
+        "leave": "leave",
+        "salary": "salary",
+        "pf": "pf",
+        "parallel_start": "parallel_start",
+        "ranking": "ranking",
+        "all_employees": "all_employees",
+        "complete_details":"complete_employee_data",
+    },
+)
+
+
+# ============================================================
+# PARALLEL START
+# ============================================================
+
+builder.add_edge(
+    "parallel_start",
+    "parallel_salary"
+)
+
+builder.add_edge(
+    "parallel_start",
+    "parallel_attendance"
+)
+
+builder.add_edge(
+    "parallel_start",
+    "parallel_leave"
+)
+
+builder.add_edge(
+    "parallel_start",
+    "parallel_pf"
+)
+
+builder.add_edge(
+    "parallel_start",
+    "parallel_experience"
+)
+
+
+# ============================================================
+# PARALLEL BRANCHES → JOIN
+# ============================================================
+
+builder.add_edge(
+    "parallel_salary",
+    "parallel_join"
+)
+
+builder.add_edge(
+    "parallel_attendance",
+    "parallel_join"
+)
+
+builder.add_edge(
+    "parallel_leave",
+    "parallel_join"
+)
+
+builder.add_edge(
+    "parallel_pf",
+    "parallel_join"
+)
+
+builder.add_edge(
+    "parallel_experience",
+    "parallel_join"
+)
+
+
+# ============================================================
+# JOIN → ANSWER
+# ============================================================
+
+builder.add_edge(
+    "parallel_join",
+    "answer_generation"
+)
+
+
+# ============================================================
+# NORMAL ROUTES → ANSWER
+# ============================================================
+
+builder.add_edge(
+    "employee",
+    "answer_generation"
+)
+
+
+builder.add_edge(
+    "attendance",
+    "answer_generation"
+)
+
+builder.add_edge(
+    "leave",
+    "answer_generation"
+)
+
+builder.add_edge(
+    "salary",
+    "answer_generation"
+)
+
+builder.add_edge(
+    "ranking",
+    "answer_generation"
+)
+
+builder.add_edge(
+    "pf",
+    "answer_generation"
+)
+
+builder.add_edge(
+    "complete_employee_data",
+    "answer_generation"
+)
+
+builder.add_edge(
+    "summary",
+    "answer_generation"
+)
+
+builder.add_edge(
+    "all_employees",
+    END
+)
+
+
+# ============================================================
+# ANSWER → END
+# ============================================================
+builder.add_edge(
+    "dynamic_data",
+    END
+)
+builder.add_edge(
+    "answer_generation",
+    END
+)
+
+
+# ============================================================
+# CONVERSATION MEMORY
+# ============================================================
+
+memory = MemorySaver()
+
+
+# ============================================================
+# COMPILE
+# ============================================================
+
+hr_graph = builder.compile(
+    checkpointer=memory
+)
+
+
+# ============================================================
+# TEST GRAPH COMPILATION
+# ============================================================
+
+if __name__ == "__main__":
+
+    print("=" * 70)
+    print("HR LANGGRAPH WORKFLOW")
+    print("=" * 70)
+
+    print("\nGraph compiled successfully.")
+
+    print("\nMain Nodes:")
+    print("- employee_detection")
+    print("- router")
+    print("- employee")
+    print("- attendance")
+    print("- leave")
+    print("- salary")
+    print("- pf")
+    print("- summary")
+
+    print("\nParallel Nodes:")
+    print("- parallel_start")
+    print("- parallel_salary")
+    print("- parallel_attendance")
+    print("- parallel_leave")
+    print("- parallel_pf")
+    print("- parallel_experience")
+    print("- parallel_join")
+
+    print("\nFinal Node:")
+    print("- answer_generation")
+
+    print("\n" + "=" * 70)

@@ -1,0 +1,5 @@
+Bill Date,Invoice No,Party Name,Product,Total Amount,GST,Warehouse,Discount,Payment Mode,Salesperson
+2026-09-10,INV201,ABC Traders,Laptop,12000,2160,Indore,500,UPI,Rahul
+2026-09-11,INV202,XYZ Traders,Mouse,8500,1530,Jabalpur,200,Cash,Amit
+2026-09-12,INV203,ABC Traders,Keyboard,15000,2700,Indore,750,Bank,Rahul
+2026-09-13,INV204,DEF Traders,Monitor,22000,3960,Bhopal,1000,UPI,Neha

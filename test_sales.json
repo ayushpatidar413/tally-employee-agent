@@ -1,0 +1,16 @@
+[
+  {
+    "Bill Date": "2026-09-20",
+    "Party Name": "ABC Traders",
+    "Invoice No": "JSON001",
+    "Total Amount": 12500,
+    "Product": "Laptop"
+  },
+  {
+    "Bill Date": "2026-09-21",
+    "Party Name": "XYZ Traders",
+    "Invoice No": "JSON002",
+    "Total Amount": 7500,
+    "Product": "Mouse"
+  }
+]

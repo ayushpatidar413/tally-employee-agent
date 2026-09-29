@@ -1,0 +1,140 @@
+﻿        date_filters = _extract_date_filters(
+            question,
+            dataset,
+            schema,
+            [],
+        )
+
+        if date_filters:
+            date_eligibility_cache[dataset_id] = False
+
+            # Resolve the date column from schema/metadata first.
+            date_column = _find_date_column(
+                dataset,
+                schema,
+                [],
+            )
+
+            # Preserve fallback support for Month-only datasets.
+            if not date_column:
+                try:
+                    fallback_rows = load_dataset_rows(
+                        dataset_id
+                    )
+                except Exception:
+                    fallback_rows = []
+
+                if fallback_rows:
+                    date_column = _find_date_column(
+                        dataset,
+                        schema,
+                        fallback_rows,
+                    )
+
+            if date_column:
+                # Load only the required date column.
+                try:
+                    date_values = load_dataset_column_values(
+                        dataset_id,
+                        date_column,
+                    )
+                except Exception:
+                    date_values = []
+
+                parsed_date_filters = []
+
+                for date_filter in date_filters:
+                    operator = date_filter.get(
+                        "operator"
+                    )
+                    value = date_filter.get(
+                        "value"
+                    )
+
+                    expected_date = None
+
+                    if operator in {
+                        "date",
+                        ">=",
+                        "<=",
+                    }:
+                        expected_date = _parse_date(
+                            value
+                        )
+
+                    parsed_date_filters.append(
+                        {
+                            "operator": operator,
+                            "value": value,
+                            "expected_date": expected_date,
+                        }
+                    )
+
+                period_exists = False
+
+                for raw_date in date_values:
+                    actual_date = _parse_date(
+                        raw_date
+                    )
+
+                    if actual_date is None:
+                        continue
+
+                    row_matches = True
+
+                    for date_filter in parsed_date_filters:
+                        operator = date_filter.get(
+                            "operator"
+                        )
+                        value = date_filter.get(
+                            "value"
+                        )
+                        expected_date = date_filter.get(
+                            "expected_date"
+                        )
+
+                        if operator == "year":
+                            if actual_date.year != int(value):
+                                row_matches = False
+                                break
+
+                        elif operator == "month":
+                            if actual_date.month != int(value):
+                                row_matches = False
+                                break
+
+                        elif operator == "date":
+                            if (
+                                expected_date is None
+                                or actual_date.date()
+                                != expected_date.date()
+                            ):
+                                row_matches = False
+                                break
+
+                        elif operator == ">=":
+                            if (
+                                expected_date is None
+                                or actual_date < expected_date
+                            ):
+                                row_matches = False
+                                break
+
+                        elif operator == "<=":
+                            if (
+                                expected_date is None
+                                or actual_date > expected_date
+                            ):
+                                row_matches = False
+                                break
+
+                    if row_matches:
+                        period_exists = True
+                        break
+
+                date_eligibility_cache[dataset_id] = (
+                    period_exists
+                )
+
+                if not period_exists:
+                    continue

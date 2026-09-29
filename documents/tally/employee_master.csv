@@ -1,0 +1,201 @@
+Employee ID,Employee Name,Department,Designation,Employment Type,Joining Date,Monthly Salary,Previous Experience Years,Current Company Experience,Total Experience,PF Applicable,PF Rate,Employee PF,Employer PF,Employment Status
+EMP001,Rajesh Sharma,IT,Software Engineer,Full-Time,2021-02-28 00:00:00,48000,0,5.5,5.5,Yes,0.12,5760,5760,Active
+EMP002,Geeta Shah,Engineering,Senior Software Engineer,Full-Time,2023-09-02 00:00:00,104500,3.9,3,6.9,Yes,0.12,12540,12540,Active
+EMP003,Ajay Kumar,HR,HR Executive,Full-Time,2025-02-11 00:00:00,23000,3.4,1.5,4.9,Yes,0.12,2760,2760,Active
+EMP004,Pooja Tiwari,Finance,Accountant,Full-Time,2019-06-20 00:00:00,33000,5.1,7.2,12.3,Yes,0.12,3960,3960,Active
+EMP005,Vandana Gupta,Accounts,Senior Accountant,Contract,2025-11-30 00:00:00,81000,3.4,0.8,4.2,Yes,0.12,9720,9720,Active
+EMP006,Seema Chauhan,Sales,Sales Executive,Full-Time,2024-02-13 00:00:00,23000,0.3,2.5,2.8,Yes,0.12,2760,2760,Active
+EMP007,Vikram Sharma,Marketing,Marketing Executive,Full-Time,2019-06-07 00:00:00,34000,0.3,7.2,7.5,Yes,0.12,4080,4080,Active
+EMP008,Deepika Mehta,Operations,Operations Executive,Full-Time,2020-05-10 00:00:00,30500,0,6.3,6.3,Yes,0.12,3660,3660,Active
+EMP009,Nandini Agarwal,Administration,Office Administrator,Full-Time,2024-12-17 00:00:00,33500,6,1.7,7.7,Yes,0.12,4020,4020,Active
+EMP010,Rachna Sharma,Support,Support Executive,Contract,2019-12-27 00:00:00,20500,7.1,6.7,13.8,Yes,0.12,2460,2460,Active
+EMP011,Madhuri Mehta,IT,Senior Software Engineer,Full-Time,2025-07-06 00:00:00,124000,6.9,1.2,8.1,Yes,0.12,14880,14880,Active
+EMP012,Vandana Chauhan,Engineering,Project Manager,Full-Time,2025-11-12 00:00:00,101000,0.9,0.8,1.7,Yes,0.12,12120,12120,Active
+EMP013,Ajay Malhotra,HR,HR Manager,Full-Time,2020-03-28 00:00:00,69500,6.5,6.4,12.9,Yes,0.12,8340,8340,Active
+EMP014,Seema Joshi,Finance,Senior Accountant,Full-Time,2020-07-02 00:00:00,60000,0.2,6.2,6.4,Yes,0.12,7200,7200,Active
+EMP015,Aman Bhatia,Accounts,Senior Accountant,Full-Time,2018-10-12 00:00:00,63500,0,7.9,7.9,Yes,0.12,7620,7620,Active
+EMP016,Amit Saxena,Sales,Sales Manager,Contract,2024-01-06 00:00:00,94500,2.6,2.7,5.3,Yes,0.12,11340,11340,Active
+EMP017,Tarun Nair,Marketing,Marketing Manager,Full-Time,2024-07-06 00:00:00,66500,7.7,2.2,9.9,Yes,0.12,7980,7980,Active
+EMP018,Geeta Kumar,Operations,Operations Executive,Full-Time,2022-11-15 00:00:00,38500,2.8,3.8,6.6,Yes,0.12,4620,4620,Active
+EMP019,Lakshmi Bhatia,Administration,Office Administrator,Full-Time,2019-04-19 00:00:00,37000,3.1,7.4,10.5,Yes,0.12,4440,4440,Active
+EMP020,Simran Patel,Support,Business Analyst,Full-Time,2025-12-13 00:00:00,38000,3.5,0.7,4.2,Yes,0.12,4560,4560,Active
+EMP021,Deepika Rao,IT,Software Engineer,Full-Time,2022-11-02 00:00:00,54000,0.6,3.8,4.4,Yes,0.12,6480,6480,Active
+EMP022,Manoj Reddy,Engineering,Project Manager,Full-Time,2025-06-10 00:00:00,121000,0,1.2,1.2,Yes,0.12,14520,14520,Active
+EMP023,Naveen Pandey,HR,HR Manager,Full-Time,2021-06-20 00:00:00,88000,5.3,5.2,10.5,Yes,0.12,10560,10560,Active
+EMP024,Sunita Menon,Finance,Finance Executive,Full-Time,2024-03-20 00:00:00,34500,1,2.4,3.4,Yes,0.12,4140,4140,Active
+EMP025,Sneha Chopra,Accounts,Senior Accountant,Full-Time,2026-05-23 00:00:00,89500,7.2,0.3,7.5,Yes,0.12,10740,10740,Active
+EMP026,Pankaj Bansal,Sales,Sales Manager,Full-Time,2024-02-23 00:00:00,76500,6.7,2.5,9.2,Yes,0.12,9180,9180,Active
+EMP027,Anjali Rastogi,Marketing,Marketing Executive,Full-Time,2024-07-03 00:00:00,34000,4.9,2.2,7.1,Yes,0.12,4080,4080,Active
+EMP028,Manish Gupta,Operations,Project Manager,Full-Time,2025-07-30 00:00:00,138000,1.7,1.1,2.8,Yes,0.12,16560,16560,Active
+EMP029,Anil Iyer,Administration,Administration Executive,Full-Time,2021-03-08 00:00:00,21000,0,5.5,5.5,Yes,0.12,2520,2520,Active
+EMP030,Kajal Trivedi,Support,Business Analyst,Full-Time,2026-06-04 00:00:00,41000,1.9,0.2,2.1,Yes,0.12,4920,4920,Active
+EMP031,Sandeep Mishra,IT,Software Engineer,Full-Time,2018-04-11 00:00:00,39500,0.4,8.4,8.8,Yes,0.12,4740,4740,Active
+EMP032,Nikhil Saxena,Engineering,Software Engineer,Full-Time,2022-08-25 00:00:00,60000,7.1,4,11.1,Yes,0.12,7200,7200,Active
+EMP033,Arjun Verma,HR,HR Manager,Full-Time,2022-06-25 00:00:00,87500,2,4.2,6.2,Yes,0.12,10500,10500,Active
+EMP034,Nandini Bhatia,Finance,Accountant,Full-Time,2019-03-13 00:00:00,46500,6.2,7.5,13.7,Yes,0.12,5580,5580,Active
+EMP035,Sarita Gupta,Accounts,Senior Accountant,Full-Time,2024-04-02 00:00:00,48500,2,2.4,4.4,Yes,0.12,5820,5820,Active
+EMP036,Nandini Desai,Sales,Sales Manager,Full-Time,2023-03-19 00:00:00,58500,0,3.5,3.5,Yes,0.12,7020,7020,Active
+EMP037,Manoj Rao,Marketing,Marketing Manager,Full-Time,2022-12-18 00:00:00,104500,4.9,3.7,8.6,Yes,0.12,12540,12540,Active
+EMP038,Geeta Malhotra,Operations,Project Manager,Full-Time,2019-10-14 00:00:00,138500,5.9,6.9,12.8,Yes,0.12,16620,16620,Active
+EMP039,Sandeep Singh,Administration,Office Administrator,Full-Time,2025-02-24 00:00:00,28000,2.2,1.5,3.7,Yes,0.12,3360,3360,Active
+EMP040,Anita Reddy,Support,Business Analyst,Full-Time,2020-09-06 00:00:00,76000,2.2,6,8.2,Yes,0.12,9120,9120,Active
+EMP041,Prakash Tiwari,IT,Senior Software Engineer,Full-Time,2021-01-17 00:00:00,100500,2.7,5.6,8.3,Yes,0.12,12060,12060,Active
+EMP042,Ashok Saxena,Engineering,Software Engineer,Full-Time,2019-09-10 00:00:00,39000,1.9,7,8.9,Yes,0.12,4680,4680,Active
+EMP043,Neha Pandey,HR,HR Executive,Full-Time,2022-08-27 00:00:00,22000,0,4,4,Yes,0.12,2640,2640,Active
+EMP044,Divya Bansal,Finance,Senior Accountant,Full-Time,2020-04-27 00:00:00,49000,6.7,6.3,13,Yes,0.12,5880,5880,Active
+EMP045,Kiran Singh,Accounts,Accountant,Contract,2024-06-16 00:00:00,47000,3,2.2,5.2,Yes,0.12,5640,5640,Active
+EMP046,Shweta Rao,Sales,Sales Manager,Full-Time,2026-06-14 00:00:00,69500,3.1,0.2,3.3,Yes,0.12,8340,8340,Active
+EMP047,Ashok Rastogi,Marketing,Marketing Manager,Full-Time,2026-05-20 00:00:00,90500,5.9,0.3,6.2,Yes,0.12,10860,10860,Active
+EMP048,Madhuri Shah,Operations,Operations Executive,Full-Time,2020-06-17 00:00:00,35000,2.2,6.2,8.4,Yes,0.12,4200,4200,Active
+EMP049,Preeti Pillai,Administration,Office Administrator,Full-Time,2025-07-02 00:00:00,31000,5.4,1.2,6.6,Yes,0.12,3720,3720,Active
+EMP050,Kavita Shah,Support,Support Executive,Full-Time,2023-03-30 00:00:00,32000,0,3.4,3.4,Yes,0.12,3840,3840,Active
+EMP051,Vikram Menon,IT,Software Developer,Contract,2024-08-21 00:00:00,61000,4.5,2,6.5,Yes,0.12,7320,7320,Active
+EMP052,Gaurav Rao,Engineering,Data Analyst,Full-Time,2023-03-07 00:00:00,41000,1.5,3.5,5,Yes,0.12,4920,4920,Active
+EMP053,Ashok Gupta,HR,HR Manager,Full-Time,2023-02-06 00:00:00,69000,2.6,3.6,6.2,Yes,0.12,8280,8280,Active
+EMP054,Lakshmi Rastogi,Finance,Senior Accountant,Full-Time,2026-06-08 00:00:00,63000,7.6,0.2,7.8,Yes,0.12,7560,7560,Active
+EMP055,Ramesh Trivedi,Accounts,Accountant,Contract,2018-03-21 00:00:00,37500,6,8.4,14.4,Yes,0.12,4500,4500,Active
+EMP056,Gaurav Mehta,Sales,Sales Manager,Full-Time,2025-04-16 00:00:00,64500,0.5,1.4,1.9,Yes,0.12,7740,7740,Active
+EMP057,Payal Rao,Marketing,Marketing Executive,Full-Time,2018-05-08 00:00:00,44500,0,8.3,8.3,Yes,0.12,5340,5340,Active
+EMP058,Pankaj Kumar,Operations,Operations Executive,Full-Time,2019-09-17 00:00:00,39500,1.9,7,8.9,Yes,0.12,4740,4740,Active
+EMP059,Sunita Kumar,Administration,Administration Executive,Full-Time,2023-03-20 00:00:00,25000,5.6,3.4,9,Yes,0.12,3000,3000,Active
+EMP060,Kiran Chopra,Support,Support Executive,Full-Time,2024-10-23 00:00:00,28000,7.7,1.9,9.6,Yes,0.12,3360,3360,Active
+EMP061,Madhuri Bansal,IT,Software Engineer,Full-Time,2019-03-19 00:00:00,50500,4.6,7.5,12.1,Yes,0.12,6060,6060,Active
+EMP062,Sunita Chopra,Engineering,Data Analyst,Full-Time,2026-01-07 00:00:00,58000,1.6,0.6,2.2,Yes,0.12,6960,6960,Active
+EMP063,Naresh Chauhan,HR,HR Executive,Full-Time,2025-10-26 00:00:00,23500,6.2,0.8,7,Yes,0.12,2820,2820,Active
+EMP064,Naresh Rao,Finance,Finance Executive,Full-Time,2019-05-11 00:00:00,51500,0,7.3,7.3,Yes,0.12,6180,6180,Active
+EMP065,Sandeep Shah,Accounts,Accountant,Full-Time,2023-12-23 00:00:00,33500,3.4,2.7,6.1,Yes,0.12,4020,4020,Active
+EMP066,Ritu Agarwal,Sales,Sales Manager,Full-Time,2022-09-17 00:00:00,51000,6.6,4,10.6,Yes,0.12,6120,6120,Active
+EMP067,Payal Gupta,Marketing,Marketing Manager,Full-Time,2023-02-27 00:00:00,96500,5.7,3.5,9.2,Yes,0.12,11580,11580,Active
+EMP068,Rohit Desai,Operations,Project Manager,Full-Time,2023-03-20 00:00:00,143500,3.5,3.4,6.9,Yes,0.12,17220,17220,Active
+EMP069,Rajesh Kumar,Administration,Office Administrator,Full-Time,2020-10-02 00:00:00,30500,6.6,5.9,12.5,Yes,0.12,3660,3660,Active
+EMP070,Amit Menon,Support,Business Analyst,Full-Time,2026-06-01 00:00:00,51000,3.7,0.2,3.9,Yes,0.12,6120,6120,Active
+EMP071,Tarun Pandey,IT,System Administrator,Full-Time,2018-04-28 00:00:00,50000,0,8.3,8.3,Yes,0.12,6000,6000,Active
+EMP072,Arjun Rao,Engineering,Data Analyst,Full-Time,2021-12-24 00:00:00,46000,6.4,4.7,11.1,Yes,0.12,5520,5520,Active
+EMP073,Manish Pandey,HR,HR Manager,Full-Time,2018-02-11 00:00:00,91500,4.1,8.6,12.7,Yes,0.12,10980,10980,Active
+EMP074,Shweta Agarwal,Finance,Accountant,Full-Time,2022-07-23 00:00:00,45500,3.9,4.1,8,Yes,0.12,5460,5460,Active
+EMP075,Ravi Bansal,Accounts,Senior Accountant,Full-Time,2025-12-25 00:00:00,87500,3.9,0.7,4.6,Yes,0.12,10500,10500,Active
+EMP076,Rahul Tiwari,Sales,Sales Executive,Full-Time,2020-06-26 00:00:00,27500,3.2,6.2,9.4,Yes,0.12,3300,3300,Active
+EMP077,Rajesh Tiwari,Marketing,Marketing Manager,Full-Time,2024-03-17 00:00:00,86000,4.2,2.5,6.7,Yes,0.12,10320,10320,Active
+EMP078,Sachin Bhatia,Operations,Project Manager,Full-Time,2025-11-18 00:00:00,126000,0,0.8,0.8,Yes,0.12,15120,15120,Active
+EMP079,Ashok Bhatia,Administration,Administration Executive,Full-Time,2026-02-02 00:00:00,22000,1.5,0.6,2.1,Yes,0.12,2640,2640,Active
+EMP080,Sarita Chauhan,Support,Support Executive,Full-Time,2020-06-05 00:00:00,21000,5.9,6.2,12.1,Yes,0.12,2520,2520,Active
+EMP081,Amit Malhotra,IT,Senior Software Engineer,Full-Time,2020-03-06 00:00:00,83000,2.4,6.5,8.9,Yes,0.12,9960,9960,Active
+EMP082,Aman Chopra,Engineering,Project Manager,Full-Time,2025-12-10 00:00:00,82000,4.3,0.7,5,Yes,0.12,9840,9840,Active
+EMP083,Sunita Agarwal,HR,HR Executive,Full-Time,2021-04-11 00:00:00,38000,5.6,5.4,11,Yes,0.12,4560,4560,Active
+EMP084,Karan Agarwal,Finance,Senior Accountant,Full-Time,2018-02-20 00:00:00,51500,4.6,8.5,13.1,Yes,0.12,6180,6180,Active
+EMP085,Pooja Desai,Accounts,Senior Accountant,Full-Time,2020-01-26 00:00:00,67500,0,6.6,6.6,Yes,0.12,8100,8100,Active
+EMP086,Deepak Pillai,Sales,Sales Manager,Full-Time,2018-09-25 00:00:00,57500,3.2,7.9,11.1,Yes,0.12,6900,6900,Active
+EMP087,Rakesh Pandey,Marketing,Marketing Executive,Full-Time,2019-09-04 00:00:00,25000,6.5,7,13.5,Yes,0.12,3000,3000,Active
+EMP088,Shreya Kumar,Operations,Operations Executive,Full-Time,2019-05-01 00:00:00,27000,4.5,7.3,11.8,Yes,0.12,3240,3240,Active
+EMP089,Anita Bhatia,Administration,Administration Executive,Full-Time,2023-01-20 00:00:00,30500,7.3,3.6,10.9,Yes,0.12,3660,3660,Active
+EMP090,Amit Bansal,Support,Business Analyst,Full-Time,2024-05-18 00:00:00,55000,5,2.3,7.3,Yes,0.12,6600,6600,Active
+EMP091,Alka Rastogi,IT,Software Developer,Full-Time,2020-05-01 00:00:00,85000,5,6.3,11.3,Yes,0.12,10200,10200,Active
+EMP092,Aman Pandey,Engineering,Software Engineer,Full-Time,2020-09-09 00:00:00,40500,0,6,6,Yes,0.12,4860,4860,Active
+EMP093,Preeti Kapoor,HR,HR Executive,Full-Time,2023-01-20 00:00:00,33500,5.5,3.6,9.1,Yes,0.12,4020,4020,Active
+EMP094,Priya Patel,Finance,Accountant,Full-Time,2021-03-26 00:00:00,29500,5.7,5.4,11.1,Yes,0.12,3540,3540,Active
+EMP095,Sandeep Trivedi,Accounts,Senior Accountant,Full-Time,2025-09-16 00:00:00,49500,1.9,1,2.9,Yes,0.12,5940,5940,Active
+EMP096,Rekha Shah,Sales,Sales Executive,Full-Time,2019-04-16 00:00:00,32000,4.4,7.4,11.8,Yes,0.12,3840,3840,Active
+EMP097,Ramesh Gupta,Marketing,Marketing Manager,Full-Time,2018-10-20 00:00:00,64500,0.5,7.9,8.4,Yes,0.12,7740,7740,Active
+EMP098,Suresh Chopra,Operations,Project Manager,Full-Time,2019-05-25 00:00:00,137500,3.7,7.3,11,Yes,0.12,16500,16500,Active
+EMP099,Vishal Pillai,Administration,Office Administrator,Full-Time,2023-08-12 00:00:00,29000,0,3.1,3.1,Yes,0.12,3480,3480,Active
+EMP100,Arjun Bhatia,Support,Support Executive,Full-Time,2026-03-28 00:00:00,25000,2.6,0.4,3,Yes,0.12,3000,3000,Active
+EMP101,Sanjay Kumar,IT,Software Developer,Full-Time,2025-07-24 00:00:00,50000,6.7,1.1,7.8,Yes,0.12,6000,6000,Active
+EMP102,Abhishek Bansal,Engineering,Software Engineer,Full-Time,2025-07-16 00:00:00,80000,6.6,1.1,7.7,Yes,0.12,9600,9600,Active
+EMP103,Divya Joshi,HR,HR Executive,Full-Time,2023-10-27 00:00:00,35500,5.2,2.8,8,Yes,0.12,4260,4260,Active
+EMP104,Alka Desai,Finance,Accountant,Full-Time,2022-11-21 00:00:00,41000,5.1,3.8,8.9,Yes,0.12,4920,4920,Active
+EMP105,Rachna Chauhan,Accounts,Accountant,Full-Time,2021-11-26 00:00:00,37500,3.3,4.8,8.1,Yes,0.12,4500,4500,Active
+EMP106,Vandana Bhatia,Sales,Sales Executive,Full-Time,2021-09-12 00:00:00,23500,0,5,5,Yes,0.12,2820,2820,Active
+EMP107,Shreya Saxena,Marketing,Marketing Manager,Full-Time,2024-03-03 00:00:00,105000,0.3,2.5,2.8,Yes,0.12,12600,12600,Active
+EMP108,Rekha Rao,Operations,Project Manager,Full-Time,2019-04-20 00:00:00,122500,7.8,7.4,15.2,Yes,0.12,14700,14700,Active
+EMP109,Anita Malhotra,Administration,Administration Executive,Full-Time,2022-08-20 00:00:00,33000,0.4,4,4.4,Yes,0.12,3960,3960,Active
+EMP110,Dinesh Malhotra,Support,Business Analyst,Full-Time,2022-12-16 00:00:00,76000,6.1,3.7,9.8,Yes,0.12,9120,9120,Active
+EMP111,Anjali Shah,IT,Software Engineer,Full-Time,2022-11-30 00:00:00,49000,7,3.8,10.8,Yes,0.12,5880,5880,Active
+EMP112,Ajay Gupta,Engineering,Software Engineer,Full-Time,2024-10-29 00:00:00,71500,6.4,1.8,8.2,Yes,0.12,8580,8580,Active
+EMP113,Simran Sharma,HR,HR Manager,Full-Time,2018-02-26 00:00:00,91000,0,8.5,8.5,Yes,0.12,10920,10920,Active
+EMP114,Seema Bansal,Finance,Accountant,Full-Time,2019-04-27 00:00:00,37000,5.2,7.3,12.5,Yes,0.12,4440,4440,Active
+EMP115,Nandini Mishra,Accounts,Senior Accountant,Full-Time,2025-11-29 00:00:00,78500,2.2,0.8,3,Yes,0.12,9420,9420,Active
+EMP116,Ajay Sharma,Sales,Sales Manager,Full-Time,2023-02-14 00:00:00,66000,4.4,3.5,7.9,Yes,0.12,7920,7920,Active
+EMP117,Neha Saxena,Marketing,Marketing Executive,Full-Time,2021-02-05 00:00:00,22500,6.2,5.6,11.8,Yes,0.12,2700,2700,Active
+EMP118,Arjun Trivedi,Operations,Project Manager,Full-Time,2020-12-30 00:00:00,146500,6.6,5.7,12.3,Yes,0.12,17580,17580,Active
+EMP119,Vikram Desai,Administration,Office Administrator,Full-Time,2019-09-01 00:00:00,36000,3.6,7,10.6,Yes,0.12,4320,4320,Active
+EMP120,Harish Gupta,Support,Business Analyst,Full-Time,2024-02-04 00:00:00,71000,0,2.6,2.6,Yes,0.12,8520,8520,Active
+EMP121,Sapna Shah,IT,Software Engineer,Full-Time,2020-09-05 00:00:00,75500,4.6,6,10.6,Yes,0.12,9060,9060,Active
+EMP122,Geeta Tiwari,Engineering,Data Analyst,Full-Time,2021-07-27 00:00:00,35000,6,5.1,11.1,Yes,0.12,4200,4200,Active
+EMP123,Vishal Mehta,HR,HR Manager,Full-Time,2025-06-11 00:00:00,80500,6.3,1.2,7.5,Yes,0.12,9660,9660,Active
+EMP124,Vandana Kumar,Finance,Accountant,Full-Time,2018-06-01 00:00:00,38000,1,8.2,9.2,Yes,0.12,4560,4560,Active
+EMP125,Usha Mishra,Accounts,Senior Accountant,Full-Time,2022-12-09 00:00:00,51500,0.8,3.7,4.5,Yes,0.12,6180,6180,Active
+EMP126,Abhishek Shah,Sales,Sales Executive,Full-Time,2022-08-07 00:00:00,22500,7,4.1,11.1,Yes,0.12,2700,2700,Active
+EMP127,Abhishek Menon,Marketing,Marketing Executive,Full-Time,2020-12-21 00:00:00,35500,0,5.7,5.7,Yes,0.12,4260,4260,Active
+EMP128,Aakash Mehta,Operations,Operations Executive,Full-Time,2025-07-25 00:00:00,30000,6.9,1.1,8,Yes,0.12,3600,3600,Active
+EMP129,Manoj Patel,Administration,Office Administrator,Full-Time,2024-01-26 00:00:00,36000,0.3,2.6,2.9,Yes,0.12,4320,4320,Active
+EMP130,Vidya Reddy,Support,Business Analyst,Full-Time,2026-05-17 00:00:00,50000,0.7,0.3,1,Yes,0.12,6000,6000,Active
+EMP131,Tarun Chauhan,IT,Software Developer,Full-Time,2019-11-13 00:00:00,64000,5.6,6.8,12.4,Yes,0.12,7680,7680,Active
+EMP132,Shweta Desai,Engineering,Software Engineer,Full-Time,2018-08-18 00:00:00,51500,2.3,8,10.3,Yes,0.12,6180,6180,Active
+EMP133,Rohit Tiwari,HR,HR Executive,Full-Time,2023-12-16 00:00:00,28000,3.3,2.7,6,Yes,0.12,3360,3360,Active
+EMP134,Manoj Verma,Finance,Accountant,Full-Time,2019-12-19 00:00:00,27500,0,6.7,6.7,Yes,0.12,3300,3300,Active
+EMP135,Ishita Chopra,Accounts,Accountant,Full-Time,2024-07-16 00:00:00,38500,1.1,2.1,3.2,Yes,0.12,4620,4620,Active
+EMP136,Simran Menon,Sales,Sales Manager,Full-Time,2020-11-11 00:00:00,80000,5.3,5.8,11.1,Yes,0.12,9600,9600,Active
+EMP137,Pooja Shah,Marketing,Marketing Manager,Full-Time,2025-08-07 00:00:00,74000,4.4,1.1,5.5,Yes,0.12,8880,8880,Active
+EMP138,Nikhil Mehta,Operations,Project Manager,Full-Time,2025-03-02 00:00:00,119000,7.7,1.5,9.2,Yes,0.12,14280,14280,Active
+EMP139,Sachin Malhotra,Administration,Office Administrator,Full-Time,2020-03-26 00:00:00,30000,8,6.4,14.4,Yes,0.12,3600,3600,Active
+EMP140,Ritu Chauhan,Support,Support Executive,Full-Time,2022-04-12 00:00:00,22000,4.6,4.4,9,Yes,0.12,2640,2640,Active
+EMP141,Meera Joshi,IT,Senior Software Engineer,Contract,2025-05-20 00:00:00,73000,0,1.3,1.3,Yes,0.12,8760,8760,Active
+EMP142,Shweta Shah,Engineering,Software Engineer,Full-Time,2026-05-11 00:00:00,69500,4,0.3,4.3,Yes,0.12,8340,8340,Active
+EMP143,Neha Malhotra,HR,HR Manager,Full-Time,2020-07-31 00:00:00,106000,4.9,6.1,11,Yes,0.12,12720,12720,Active
+EMP144,Anil Patel,Finance,Finance Executive,Full-Time,2024-12-18 00:00:00,31000,2,1.7,3.7,Yes,0.12,3720,3720,Active
+EMP145,Rohit Yadav,Accounts,Accountant,Full-Time,2019-02-02 00:00:00,42500,7.2,7.6,14.8,Yes,0.12,5100,5100,Active
+EMP146,Vandana Pillai,Sales,Sales Manager,Full-Time,2018-05-17 00:00:00,79000,4.6,8.3,12.9,Yes,0.12,9480,9480,Active
+EMP147,Rahul Gupta,Marketing,Marketing Executive,Full-Time,2021-08-31 00:00:00,29500,6,5,11,Yes,0.12,3540,3540,Active
+EMP148,Sunil Singh,Operations,Operations Executive,Full-Time,2022-02-07 00:00:00,36500,0,4.6,4.6,Yes,0.12,4380,4380,Active
+EMP149,Aakash Kapoor,Administration,Administration Executive,Full-Time,2023-05-28 00:00:00,26500,7.7,3.3,11,Yes,0.12,3180,3180,Active
+EMP150,Nisha Mehta,Support,Business Analyst,Full-Time,2023-04-03 00:00:00,42500,7.7,3.4,11.1,Yes,0.12,5100,5100,Active
+EMP151,Ishita Trivedi,IT,Software Engineer,Full-Time,2026-02-14 00:00:00,74500,5.4,0.5,5.9,Yes,0.12,8940,8940,Active
+EMP152,Kavita Singh,Engineering,Project Manager,Full-Time,2022-06-05 00:00:00,92000,0.1,4.2,4.3,Yes,0.12,11040,11040,Active
+EMP153,Manish Sharma,HR,HR Manager,Full-Time,2025-07-18 00:00:00,79000,6,1.1,7.1,Yes,0.12,9480,9480,Active
+EMP154,Komal Joshi,Finance,Senior Accountant,Full-Time,2022-03-02 00:00:00,87000,0.9,4.5,5.4,Yes,0.12,10440,10440,Active
+EMP155,Pankaj Iyer,Accounts,Accountant,Full-Time,2024-04-18 00:00:00,42500,0,2.4,2.4,Yes,0.12,5100,5100,Active
+EMP156,Tarun Saxena,Sales,Sales Executive,Full-Time,2023-03-17 00:00:00,39000,7.3,3.5,10.8,Yes,0.12,4680,4680,Active
+EMP157,Madhuri Tiwari,Marketing,Marketing Manager,Contract,2019-07-27 00:00:00,62500,0.4,7.1,7.5,Yes,0.12,7500,7500,Active
+EMP158,Vishal Kumar,Operations,Project Manager,Full-Time,2019-02-03 00:00:00,95000,1.9,7.6,9.5,Yes,0.12,11400,11400,Active
+EMP159,Nikhil Iyer,Administration,Office Administrator,Full-Time,2022-02-28 00:00:00,35000,5.4,4.5,9.9,Yes,0.12,4200,4200,Active
+EMP160,Lakshmi Verma,Support,Business Analyst,Full-Time,2026-04-29 00:00:00,73500,5.8,0.3,6.1,Yes,0.12,8820,8820,Active
+EMP161,Naresh Chopra,IT,Software Developer,Full-Time,2023-06-28 00:00:00,89500,4.9,3.2,8.1,Yes,0.12,10740,10740,Active
+EMP162,Vandana Verma,Engineering,Project Manager,Full-Time,2025-09-28 00:00:00,84500,0,0.9,0.9,Yes,0.12,10140,10140,Active
+EMP163,Gaurav Verma,HR,HR Executive,Full-Time,2019-02-11 00:00:00,32000,7.8,7.6,15.4,Yes,0.12,3840,3840,Active
+EMP164,Rohit Mishra,Finance,Finance Executive,Full-Time,2018-09-06 00:00:00,37000,3.2,8,11.2,Yes,0.12,4440,4440,Active
+EMP165,Nisha Agarwal,Accounts,Accountant,Full-Time,2023-02-06 00:00:00,50000,0.7,3.6,4.3,Yes,0.12,6000,6000,Active
+EMP166,Alka Singh,Sales,Sales Executive,Full-Time,2021-09-28 00:00:00,19500,1.9,4.9,6.8,Yes,0.12,2340,2340,Active
+EMP167,Kavita Agarwal,Marketing,Marketing Executive,Full-Time,2024-03-20 00:00:00,22000,1.7,2.4,4.1,Yes,0.12,2640,2640,Active
+EMP168,Suresh Desai,Operations,Operations Executive,Full-Time,2019-08-28 00:00:00,30000,6.3,7,13.3,Yes,0.12,3600,3600,Active
+EMP169,Meera Gupta,Administration,Office Administrator,Full-Time,2019-06-17 00:00:00,24500,0,7.2,7.2,Yes,0.12,2940,2940,Active
+EMP170,Umesh Gupta,Support,Support Executive,Full-Time,2018-04-16 00:00:00,29000,1.1,8.4,9.5,Yes,0.12,3480,3480,Active
+EMP171,Sunil Rao,IT,Software Engineer,Full-Time,2021-08-19 00:00:00,68500,0.1,5,5.1,Yes,0.12,8220,8220,Active
+EMP172,Anjali Trivedi,Engineering,Senior Software Engineer,Full-Time,2023-11-25 00:00:00,125000,0.9,2.8,3.7,Yes,0.12,15000,15000,Active
+EMP173,Ramesh Shah,HR,HR Manager,Full-Time,2022-01-22 00:00:00,106000,4.1,4.6,8.7,Yes,0.12,12720,12720,Active
+EMP174,Naresh Pandey,Finance,Finance Executive,Full-Time,2024-11-24 00:00:00,32500,0.3,1.8,2.1,Yes,0.12,3900,3900,Active
+EMP175,Sneha Pandey,Accounts,Senior Accountant,Full-Time,2025-03-20 00:00:00,75000,7.7,1.4,9.1,Yes,0.12,9000,9000,Active
+EMP176,Suresh Chauhan,Sales,Sales Manager,Full-Time,2022-10-13 00:00:00,76500,0,3.9,3.9,Yes,0.12,9180,9180,Active
+EMP177,Naresh Mishra,Marketing,Marketing Manager,Full-Time,2018-11-27 00:00:00,60000,2.6,7.8,10.4,Yes,0.12,7200,7200,Active
+EMP178,Dinesh Nair,Operations,Operations Executive,Full-Time,2025-01-01 00:00:00,28000,5.1,1.7,6.8,Yes,0.12,3360,3360,Active
+EMP179,Sunita Mehta,Administration,Office Administrator,Full-Time,2024-09-12 00:00:00,32500,4.2,2,6.2,Yes,0.12,3900,3900,Active
+EMP180,Gaurav Shah,Support,Business Analyst,Full-Time,2025-11-14 00:00:00,41500,0.9,0.8,1.7,Yes,0.12,4980,4980,Active
+EMP181,Sunita Rao,IT,Software Engineer,Full-Time,2023-01-24 00:00:00,58000,7.1,3.6,10.7,Yes,0.12,6960,6960,Active
+EMP182,Sanjay Tiwari,Engineering,Data Analyst,Full-Time,2022-08-31 00:00:00,58000,5.8,4,9.8,Yes,0.12,6960,6960,Active
+EMP183,Deepak Malhotra,HR,HR Manager,Full-Time,2020-11-10 00:00:00,98500,0,5.8,5.8,Yes,0.12,11820,11820,Active
+EMP184,Gaurav Rastogi,Finance,Senior Accountant,Full-Time,2019-01-09 00:00:00,49500,6.7,7.6,14.3,Yes,0.12,5940,5940,Active
+EMP185,Neha Sharma,Accounts,Accountant,Full-Time,2026-04-15 00:00:00,46500,3,0.4,3.4,Yes,0.12,5580,5580,Active
+EMP186,Pankaj Pandey,Sales,Sales Executive,Full-Time,2024-04-19 00:00:00,37000,4.5,2.4,6.9,Yes,0.12,4440,4440,Active
+EMP187,Ramesh Patel,Marketing,Marketing Manager,Full-Time,2025-06-18 00:00:00,78000,7.5,1.2,8.7,Yes,0.12,9360,9360,Active
+EMP188,Neha Bansal,Operations,Operations Executive,Full-Time,2024-09-25 00:00:00,28500,2.5,1.9,4.4,Yes,0.12,3420,3420,Active
+EMP189,Lakshmi Agarwal,Administration,Administration Executive,Full-Time,2025-05-13 00:00:00,23000,3.9,1.3,5.2,Yes,0.12,2760,2760,Active
+EMP190,Naveen Trivedi,Support,Business Analyst,Full-Time,2022-02-14 00:00:00,71500,0,4.5,4.5,Yes,0.12,8580,8580,Active
+EMP191,Kiran Reddy,IT,Software Engineer,Full-Time,2022-10-24 00:00:00,83000,6.8,3.9,10.7,Yes,0.12,9960,9960,Active
+EMP192,Vinod Singh,Engineering,Software Engineer,Full-Time,2025-05-18 00:00:00,70000,6.6,1.3,7.9,Yes,0.12,8400,8400,Active
+EMP193,Mahesh Pillai,HR,HR Executive,Full-Time,2025-11-18 00:00:00,29000,6.1,0.8,6.9,Yes,0.12,3480,3480,Active
+EMP194,Vandana Saxena,Finance,Senior Accountant,Full-Time,2020-01-14 00:00:00,45500,7,6.6,13.6,Yes,0.12,5460,5460,Active
+EMP195,Deepak Pandey,Accounts,Senior Accountant,Full-Time,2019-08-05 00:00:00,49500,5.9,7.1,13,Yes,0.12,5940,5940,Active
+EMP196,Alka Sharma,Sales,Sales Executive,Full-Time,2020-05-31 00:00:00,35500,3,6.3,9.3,Yes,0.12,4260,4260,Active
+EMP197,Pooja Trivedi,Marketing,Marketing Executive,Full-Time,2021-06-30 00:00:00,32000,0,5.2,5.2,Yes,0.12,3840,3840,Active
+EMP198,Ritu Joshi,Operations,Operations Executive,Full-Time,2019-09-30 00:00:00,20500,1.3,6.9,8.2,Yes,0.12,2460,2460,Active
+EMP199,Rajesh Trivedi,Administration,Administration Executive,Full-Time,2022-12-20 00:00:00,27000,5.3,3.7,9,Yes,0.12,3240,3240,Active
+EMP200,Pooja Chopra,Support,Business Analyst,Full-Time,2021-01-23 00:00:00,62000,1.7,5.6,7.3,Yes,0.12,7440,7440,Active

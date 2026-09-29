@@ -1,0 +1,10 @@
+pandas
+openpyxl
+python-dotenv
+pyyaml
+langchain
+langchain-core
+langgraph
+langchain-groq
+sqlalchemy
+streamlit

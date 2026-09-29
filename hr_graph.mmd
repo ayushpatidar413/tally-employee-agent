@@ -1,0 +1,53 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__(<p>__start__</p>)
+	employee_detection(employee_detection)
+	router(router)
+	employee(employee)
+	attendance(attendance)
+	leave(leave)
+	salary(salary)
+	pf(pf)
+	summary(summary)
+	complete_employee_data(complete_employee_data)
+	parallel_start(parallel_start)
+	parallel_salary(parallel_salary)
+	parallel_attendance(parallel_attendance)
+	parallel_leave(parallel_leave)
+	parallel_pf(parallel_pf)
+	parallel_experience(parallel_experience)
+	parallel_join(parallel_join)
+	answer_generation(answer_generation)
+	__end__(<p>__end__</p>)
+	__start__ --> employee_detection;
+	attendance --> answer_generation;
+	employee --> answer_generation;
+	employee_detection --> router;
+	leave --> answer_generation;
+	parallel_attendance --> parallel_join;
+	parallel_experience --> parallel_join;
+	parallel_join --> answer_generation;
+	parallel_leave --> parallel_join;
+	parallel_pf --> parallel_join;
+	parallel_salary --> parallel_join;
+	parallel_start --> parallel_attendance;
+	parallel_start --> parallel_experience;
+	parallel_start --> parallel_leave;
+	parallel_start --> parallel_pf;
+	parallel_start --> parallel_salary;
+	pf --> answer_generation;
+	router -.-> attendance;
+	router -.-> employee;
+	router -.-> leave;
+	router -.-> parallel_start;
+	router -.-> pf;
+	router -.-> salary;
+	salary --> answer_generation;
+	answer_generation --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

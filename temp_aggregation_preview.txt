@@ -1,0 +1,172 @@
+    # --------------------------------------------------------
+
+    employee_level_query = _is_employee_level_query(
+        question,
+        dataset,
+    )
+
+    if employee_level_query:
+        filtered_rows = _deduplicate_employee_rows(
+            filtered_rows
+        )
+        # --------------------------------------------------------
+    # EMPLOYEE ATTENDANCE SUMMARY
+    #
+    # Example:
+    #   show attendance for EMP001
+    #
+    # After Employee ID filtering, summarize the attendance
+    # statuses instead of returning 31 raw daily rows.
+    # --------------------------------------------------------
+
+    employee_attendance_summary = (
+        _normalize_text(
+            dataset.get("data_type")
+        ) == "attendance"
+        and bool(
+            re.search(
+                r"\bEMP\d+\b",
+                question,
+                flags=re.IGNORECASE,
+            )
+        )
+        and bool(
+            re.search(
+                r"\battendance\b",
+                _normalize_text(question),
+            )
+        )
+    )
+
+    if employee_attendance_summary:
+        attendance_column = _resolve_column(
+            "attendance status",
+            dataset,
+            schema,
+            filtered_rows,
+        )
+
+        if attendance_column:
+            grouped = _group_aggregate(
+                filtered_rows,
+                attendance_column,
+                "count",
+                None,
+            )
+
+            result = {
+                "operation": "employee_attendance_summary",
+                "group_by": attendance_column,
+                "aggregate_function": "count",
+                "aggregate_column": None,
+                "rows": grouped,
+                "count": len(grouped),
+                "source_rows": len(rows),
+                "filtered_rows": len(filtered_rows),
+            }
+
+            return {
+                **state,
+                "intent": "group_aggregate",
+                "requested_columns": [],
+                "unavailable_columns": [],
+                "filters": filters,
+                "group_by": attendance_column,
+                "aggregate_function": "count",
+                "aggregate_column": None,
+                "result": result,
+            }
+
+    # --------------------------------------------------------
+    # Complete report request.
+    #
+    # Examples:
+    #   Complete sales report
+    #   Full sales report
+    #   Detailed sales report
+    #   Show complete sales report
+    #
+    # These are row-level report requests.
+    # Do NOT convert them into SUM().
+    # --------------------------------------------------------
+
+    question_norm = _normalize_text(
+        question
+    )
+
+    complete_report_query = bool(
+        re.search(
+            r"\b(?:complete|full|detailed|all)\b",
+            question_norm,
+        )
+        and re.search(
+            r"\b(?:sales?|revenue|billing|turnover)\b",
+            question_norm,
+        )
+        and re.search(
+            r"\breport\b",
+            question_norm,
+        )
+    )
+
+    if complete_report_query:
+        requested_columns = _dataset_columns(
+            dataset,
+            schema,
+            filtered_rows,
+        )
+
+        result = {
+            "operation": "rows",
+            "rows": filtered_rows,
+            "count": len(filtered_rows),
+            "source_rows": len(rows),
+            "filtered_rows": len(filtered_rows),
+        }
+
+        return {
+            **state,
+            "intent": "rows",
+            "requested_columns": requested_columns,
+            "unavailable_columns": [],
+            "filters": filters,
+            "result": result,
+        }
+
+    # --------------------------------------------------------
+    # Group + aggregate.
+    # --------------------------------------------------------
+
+    if group_by and aggregate_function:
+        grouped = _group_aggregate(
+            filtered_rows,
+            group_by,
+            aggregate_function,
+            aggregate_column,
+            time_period=(
+                time_grouping.get("period")
+                if time_grouping
+                else None
+            ),
+        )
+
+        # --------------------------------------------------------
+        # Lowest ranking query.
+        #
+        # _group_aggregate() normally sorts numeric results
+        # from highest to lowest.
+        #
+        # For:
+        #   Which day had the lowest sales?
+        #
+        # we need the smallest grouped sales value first.
+        # --------------------------------------------------------
+
+        if lowest_ranking_group_query:
+            grouped.sort(
+                key=lambda row: float(
+                    row.get("Total Sales", 0) or 0
+                )
+            )
+
+        result = {

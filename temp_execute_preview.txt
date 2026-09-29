@@ -1,0 +1,222 @@
+def execute_dynamic_query(
+    state: DynamicAgentState,
+) -> DynamicAgentState:
+    question = state.get(
+        "question",
+        "",
+    )
+    dataset = state.get(
+        "dataset",
+        {},
+    )
+    schema = state.get(
+        "schema",
+        [],
+    )
+    rows = state.get(
+        "rows",
+        [],
+    )
+
+    if not rows:
+        return {
+            **state,
+            "result": {
+                "rows": [],
+                "count": 0,
+                "message": "Dataset contains no rows.",
+            },
+            "filters": [],
+            "requested_columns": [],
+            "unavailable_columns": [],
+        }
+
+    # --------------------------------------------------------
+    # Parse requested columns.
+    # --------------------------------------------------------
+
+    requested_columns, unavailable_columns = (
+        _extract_requested_columns(
+            question,
+            dataset,
+            schema,
+            rows,
+        )
+    )
+
+    # --------------------------------------------------------
+    # Parse filters.
+    # --------------------------------------------------------
+
+    numeric_filters = _extract_numeric_filters(
+        question,
+        dataset,
+        schema,
+        rows,
+    )
+
+    categorical_filters = _extract_categorical_filters(
+        question,
+        dataset,
+        schema,
+        rows,
+    )
+
+    date_filters = _extract_date_filters(
+        question,
+        dataset,
+        schema,
+        rows,
+    )
+
+    filters = _deduplicate_filters(
+        numeric_filters
+        + categorical_filters
+        + date_filters
+    )
+
+    # --------------------------------------------------------
+    # Parse grouping and aggregation.
+    # --------------------------------------------------------
+
+    time_grouping = _extract_time_grouping(
+        question,
+        dataset,
+        schema,
+        rows,
+    )
+
+    group_by = _extract_group_by(
+        question,
+        dataset,
+        schema,
+        rows,
+    )
+
+    # Temporal grouping takes priority over normal grouping.
+    #
+    # Examples:
+    #   Show sales day wise
+    #   Show sales month wise
+    #   Show sales year wise
+    #   Show sales trend
+    #
+    # Keep the REAL source date column in group_by.
+    if time_grouping:
+        group_by = time_grouping["column"]
+
+    aggregate_function, aggregate_column = (
+        _extract_aggregate(
+            question,
+            dataset,
+            schema,
+            rows,
+        )
+    )
+    # --------------------------------------------------------
+    # Ranking questions.
+    #
+    # "Which customer has highest sales?"
+    # means:
+    #   GROUP BY customer
+    #   SUM sales
+    #   ORDER BY total sales DESC
+    #
+    # Ordinary "highest sale" queries are not changed because
+    # they do not have a group_by column.
+    # --------------------------------------------------------
+
+    question_norm = _normalize_text(
+        question
+    )
+
+    ranking_group_query = bool(
+        group_by
+        and re.search(
+            r"\b(?:highest|maximum|most|top)\b",
+            question_norm,
+        )
+        and re.search(
+            r"\b(?:sales?|revenue|billing|turnover)\b",
+            question_norm,
+        )
+    )
+
+    lowest_ranking_group_query = bool(
+        group_by
+        and re.search(
+            r"\b(?:lowest|minimum|least)\b",
+            question_norm,
+        )
+        and re.search(
+            r"\b(?:sales?|revenue|billing|turnover)\b",
+            question_norm,
+        )
+    )
+
+    if ranking_group_query or lowest_ranking_group_query:
+        aggregate_function = "sum"
+    # --------------------------------------------------------
+    # Attendance summary default.
+    #
+    # "attendance status summary" means:
+    #   GROUP BY Attendance Status
+    #   COUNT rows in each status
+    # --------------------------------------------------------
+
+        if (
+            group_by
+            and aggregate_function is None
+            and "summary" in question.lower()
+            and (
+                 dataset.get("data_type") == "attendance"
+                 or dataset.get("dataset_type") == "attendance"
+                )
+        ):
+            aggregate_function = "count"
+            aggregate_column = None
+
+    intent = _detect_intent(
+        question,
+        requested_columns,
+        filters,
+        group_by,
+        aggregate_function,
+    )
+
+    # --------------------------------------------------------
+    # Apply filters.
+    # --------------------------------------------------------
+
+    filtered_rows = _apply_filters(
+         rows,
+         filters,
+     )
+
+    # --------------------------------------------------------
+    # Employee-level query on attendance data.
+    #
+    # Keep daily attendance rows for attendance queries,
+    # but return one row per employee for employee queries.
+    # --------------------------------------------------------
+
+    employee_level_query = _is_employee_level_query(
+        question,
+        dataset,
+    )
+
+    if employee_level_query:
+        filtered_rows = _deduplicate_employee_rows(
+            filtered_rows
+        )
+        # --------------------------------------------------------
+    # EMPLOYEE ATTENDANCE SUMMARY
+    #
+    # Example:
+    #   show attendance for EMP001
+    #
+    # After Employee ID filtering, summarize the attendance
+    # statuses instead of returning 31 raw daily rows.
+    # --------------------------------------------------------
+
+    employee_attendance_summary = (

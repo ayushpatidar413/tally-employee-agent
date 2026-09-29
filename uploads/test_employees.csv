@@ -1,0 +1,4 @@
+employee_id,employee_name,department,designation,employment_type,joining_date,monthly_salary,previous_experience_years,current_company_experience,total_experience,pf_applicable,pf_rate,employee_pf,employer_pf,employment_status
+EMP201,Aman Makwana,IT,Software Developer,Full-Time,2025-01-10,35000,1.0,1.7,2.7,Yes,0.12,4200,4200,Active
+EMP202,Riya Sharma,HR,HR Executive,Full-Time,2024-06-15,30000,0.5,2.2,2.7,Yes,0.12,3600,3600,Active
+EMP203,Rohit Patel,Finance,Accountant,Full-Time,2023-03-20,28000,2.0,3.5,5.5,Yes,0.12,3360,3360,Active

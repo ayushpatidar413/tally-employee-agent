@@ -1,0 +1,101 @@
+Employee ID,Employee Name,Department,Designation,Employment Type,Joining Date,Monthly Salary,Previous Experience Years,Current Company Experience,Total Experience,PF Applicable,PF Rate,Employee PF,Employer PF,Employment Status
+TEST001,Shreya Rao,IT,Software Engineer,Full-Time,2020-01-03,69500,0.0,6.7,6.7,Yes,0.12,8340,8340,Active
+TEST002,Sneha Joshi,Engineering,Data Analyst,Full-Time,2025-09-03,67000,5.6,1.0,6.6,Yes,0.12,8040,8040,Active
+TEST003,Rekha Kapoor,HR,HR Executive,Full-Time,2026-02-06,34000,4.9,0.6,5.5,Yes,0.12,4080,4080,Active
+TEST004,Jyoti Menon,Finance,Senior Accountant,Full-Time,2025-08-26,70500,1.7,1.0,2.7,Yes,0.12,8460,8460,Active
+TEST005,Deepika Desai,Accounts,Senior Accountant,Full-Time,2026-01-14,50500,4.2,0.6,4.8,Yes,0.12,6060,6060,Active
+TEST006,Sunil Nair,Sales,Sales Manager,Full-Time,2021-01-08,53000,4.5,5.6,10.1,Yes,0.12,6360,6360,Active
+TEST007,Meera Rastogi,Marketing,Marketing Executive,Full-Time,2023-10-26,35000,7.2,2.8,10.0,Yes,0.12,4200,4200,Active
+TEST008,Ananya Reddy,Operations,Operations Executive,Full-Time,2026-01-08,26000,0.0,0.6,0.6,Yes,0.12,3120,3120,Active
+TEST009,Deepak Rastogi,Administration,Administration Executive,Full-Time,2025-05-28,34500,1.4,1.3,2.7,Yes,0.12,4140,4140,Active
+TEST010,Suresh Kapoor,Support,Business Analyst,Full-Time,2022-10-09,40500,5.1,3.9,9.0,Yes,0.12,4860,4860,Active
+TEST011,Rekha Sharma,IT,System Administrator,Full-Time,2019-07-11,49500,4.2,7.1,11.3,Yes,0.12,5940,5940,Active
+TEST012,Yash Verma,Engineering,Senior Software Engineer,Full-Time,2020-11-21,128000,4.4,5.8,10.2,Yes,0.12,15360,15360,Active
+TEST013,Arjun Reddy,HR,HR Manager,Full-Time,2019-06-21,58500,5.9,7.2,13.1,Yes,0.12,7020,7020,Active
+TEST014,Komal Chopra,Finance,Accountant,Full-Time,2022-07-31,42000,1.0,4.1,5.1,Yes,0.12,5040,5040,Active
+TEST015,Vivek Singh,Accounts,Accountant,Full-Time,2019-08-20,35500,0.0,7.0,7.0,Yes,0.12,4260,4260,Active
+TEST016,Amit Bhatia,Sales,Sales Manager,Full-Time,2020-11-21,65500,0.9,5.8,6.7,Yes,0.12,7860,7860,Active
+TEST017,Deepika Tiwari,Marketing,Marketing Executive,Full-Time,2021-03-24,36500,0.1,5.4,5.5,Yes,0.12,4380,4380,Active
+TEST018,Divya Mehta,Operations,Project Manager,Full-Time,2021-10-11,132500,6.6,4.9,11.5,Yes,0.12,15900,15900,Active
+TEST019,Prakash Pillai,Administration,Office Administrator,Contract,2019-01-15,37500,1.4,7.6,9.0,Yes,0.12,4500,4500,Active
+TEST020,Meera Chopra,Support,Business Analyst,Full-Time,2020-07-31,64000,2.5,6.1,8.6,Yes,0.12,7680,7680,Active
+TEST021,Preeti Chopra,IT,Senior Software Engineer,Full-Time,2025-09-18,84000,5.8,1.0,6.8,Yes,0.12,10080,10080,Active
+TEST022,Ishita Saxena,Engineering,Senior Software Engineer,Full-Time,2021-04-28,120500,0.0,5.3,5.3,Yes,0.12,14460,14460,Active
+TEST023,Mahesh Malhotra,HR,HR Manager,Full-Time,2018-10-13,72000,4.0,7.9,11.9,Yes,0.12,8640,8640,Active
+TEST024,Vidya Nair,Finance,Senior Accountant,Full-Time,2019-06-06,80000,7.4,7.2,14.6,Yes,0.12,9600,9600,Active
+TEST025,Mahesh Iyer,Accounts,Senior Accountant,Full-Time,2024-11-07,88000,1.3,1.8,3.1,Yes,0.12,10560,10560,Active
+TEST026,Simran Pandey,Sales,Sales Manager,Full-Time,2022-04-05,62500,2.7,4.4,7.1,Yes,0.12,7500,7500,Active
+TEST027,Aman Tiwari,Marketing,Marketing Manager,Full-Time,2021-04-24,100500,7.7,5.4,13.1,Yes,0.12,12060,12060,Active
+TEST028,Harish Tiwari,Operations,Operations Executive,Full-Time,2020-12-04,40000,5.3,5.7,11.0,Yes,0.12,4800,4800,Active
+TEST029,Vidya Saxena,Administration,Administration Executive,Contract,2021-11-16,31500,0.0,4.8,4.8,Yes,0.12,3780,3780,Active
+TEST030,Ravi Bansal,Support,Support Executive,Full-Time,2023-11-09,18000,2.5,2.8,5.3,Yes,0.12,2160,2160,Active
+TEST031,Anita Singh,IT,System Administrator,Full-Time,2020-12-16,41500,6.0,5.7,11.7,Yes,0.12,4980,4980,Active
+TEST032,Nandini Bansal,Engineering,Project Manager,Full-Time,2026-04-16,106500,0.2,0.4,0.6,Yes,0.12,12780,12780,Active
+TEST033,Swati Gupta,HR,HR Executive,Full-Time,2022-09-04,22000,2.4,4.0,6.4,Yes,0.12,2640,2640,Active
+TEST034,Gaurav Saxena,Finance,Finance Executive,Full-Time,2021-04-24,44000,1.6,5.4,7.0,Yes,0.12,5280,5280,Active
+TEST035,Vidya Menon,Accounts,Senior Accountant,Full-Time,2019-12-07,71000,2.1,6.7,8.8,Yes,0.12,8520,8520,Active
+TEST036,Mahesh Kumar,Sales,Sales Manager,Full-Time,2025-11-14,95500,0.0,0.8,0.8,Yes,0.12,11460,11460,Active
+TEST037,Bhavna Singh,Marketing,Marketing Manager,Full-Time,2020-04-30,71500,2.2,6.3,8.5,Yes,0.12,8580,8580,Active
+TEST038,Mahesh Saxena,Operations,Project Manager,Full-Time,2023-05-17,104000,4.6,3.3,7.9,Yes,0.12,12480,12480,Active
+TEST039,Pankaj Kapoor,Administration,Administration Executive,Full-Time,2023-12-18,20500,1.9,2.7,4.6,Yes,0.12,2460,2460,Active
+TEST040,Aman Patel,Support,Business Analyst,Full-Time,2018-10-23,67500,2.7,7.9,10.6,Yes,0.12,8100,8100,Active
+TEST041,Vinod Tiwari,IT,Senior Software Engineer,Full-Time,2024-07-15,71500,2.6,2.1,4.7,Yes,0.12,8580,8580,Active
+TEST042,Arjun Mishra,Engineering,Software Engineer,Full-Time,2018-05-29,56000,0.4,8.3,8.7,Yes,0.12,6720,6720,Active
+TEST043,Geeta Bhatia,HR,HR Manager,Full-Time,2022-12-04,65500,0.0,3.7,3.7,Yes,0.12,7860,7860,Active
+TEST044,Rajesh Menon,Finance,Accountant,Full-Time,2023-06-09,26000,1.4,3.2,4.6,Yes,0.12,3120,3120,Active
+TEST045,Meera Gupta,Accounts,Accountant,Full-Time,2024-04-08,47500,1.4,2.4,3.8,Yes,0.12,5700,5700,Active
+TEST046,Aakash Bansal,Sales,Sales Executive,Full-Time,2026-02-16,21500,1.0,0.5,1.5,Yes,0.12,2580,2580,Active
+TEST047,Ashok Gupta,Marketing,Marketing Executive,Full-Time,2023-10-02,45000,5.2,2.9,8.1,Yes,0.12,5400,5400,Active
+TEST048,Bhavna Shah,Operations,Operations Executive,Full-Time,2018-08-05,30000,7.1,8.1,15.2,Yes,0.12,3600,3600,Active
+TEST049,Lakshmi Mehta,Administration,Office Administrator,Full-Time,2026-04-15,26000,0.9,0.4,1.3,Yes,0.12,3120,3120,Active
+TEST050,Sunita Chopra,Support,Support Executive,Full-Time,2022-03-24,22000,0.0,4.4,4.4,Yes,0.12,2640,2640,Active
+TEST051,Yash Menon,IT,Software Engineer,Full-Time,2022-12-24,67000,5.9,3.7,9.6,Yes,0.12,8040,8040,Active
+TEST052,Mahesh Gupta,Engineering,Senior Software Engineer,Full-Time,2022-12-24,92000,3.0,3.7,6.7,Yes,0.12,11040,11040,Active
+TEST053,Priya Mishra,HR,HR Manager,Full-Time,2021-05-16,56500,7.6,5.3,12.9,Yes,0.12,6780,6780,Active
+TEST054,Aman Trivedi,Finance,Senior Accountant,Full-Time,2021-04-26,81500,2.3,5.3,7.6,Yes,0.12,9780,9780,Active
+TEST055,Ishita Gupta,Accounts,Accountant,Full-Time,2019-11-03,33500,4.9,6.8,11.7,Yes,0.12,4020,4020,Active
+TEST056,Divya Tiwari,Sales,Sales Manager,Full-Time,2022-03-23,52500,6.5,4.4,10.9,Yes,0.12,6300,6300,Active
+TEST057,Geeta Kumar,Marketing,Marketing Executive,Full-Time,2026-04-15,29500,0.0,0.4,0.4,Yes,0.12,3540,3540,Active
+TEST058,Jyoti Bhatia,Operations,Operations Executive,Contract,2023-11-17,24500,3.3,2.8,6.1,Yes,0.12,2940,2940,Active
+TEST059,Anjali Yadav,Administration,Office Administrator,Contract,2024-05-12,25500,0.8,2.3,3.1,Yes,0.12,3060,3060,Active
+TEST060,Rahul Pillai,Support,Support Executive,Full-Time,2020-01-07,20000,5.0,6.6,11.6,Yes,0.12,2400,2400,Active
+TEST061,Mahesh Joshi,IT,Software Engineer,Full-Time,2022-10-30,68000,1.2,3.8,5.0,Yes,0.12,8160,8160,Active
+TEST062,Priya Agarwal,Engineering,Data Analyst,Full-Time,2018-10-31,61000,1.3,7.8,9.1,Yes,0.12,7320,7320,Active
+TEST063,Lakshmi Kumar,HR,HR Manager,Full-Time,2019-01-08,95000,3.0,7.6,10.6,Yes,0.12,11400,11400,Active
+TEST064,Sandeep Mishra,Finance,Senior Accountant,Full-Time,2026-01-09,58500,0.0,0.6,0.6,Yes,0.12,7020,7020,Active
+TEST065,Manoj Trivedi,Accounts,Accountant,Full-Time,2023-05-02,26500,5.9,3.3,9.2,Yes,0.12,3180,3180,Active
+TEST066,Radhika Tiwari,Sales,Sales Manager,Full-Time,2025-04-22,61000,4.1,1.4,5.5,Yes,0.12,7320,7320,Active
+TEST067,Pankaj Desai,Marketing,Marketing Executive,Full-Time,2020-09-12,27500,4.2,6.0,10.2,Yes,0.12,3300,3300,Active
+TEST068,Prakash Rao,Operations,Operations Executive,Full-Time,2020-10-23,27000,2.6,5.9,8.5,Yes,0.12,3240,3240,Active
+TEST069,Kiran Mehta,Administration,Administration Executive,Full-Time,2018-06-06,19000,3.5,8.2,11.7,Yes,0.12,2280,2280,Active
+TEST070,Shweta Verma,Support,Business Analyst,Full-Time,2021-01-03,47000,7.2,5.7,12.9,Yes,0.12,5640,5640,Active
+TEST071,Aman Mishra,IT,Senior Software Engineer,Full-Time,2026-02-20,95500,0.0,0.5,0.5,Yes,0.12,11460,11460,Active
+TEST072,Nikhil Kumar,Engineering,Project Manager,Contract,2020-12-02,149500,1.6,5.7,7.3,Yes,0.12,17940,17940,Active
+TEST073,Rahul Reddy,HR,HR Executive,Full-Time,2024-10-27,24500,0.6,1.8,2.4,Yes,0.12,2940,2940,Active
+TEST074,Amit Trivedi,Finance,Senior Accountant,Full-Time,2024-01-14,61000,1.2,2.6,3.8,Yes,0.12,7320,7320,Active
+TEST075,Rahul Singh,Accounts,Accountant,Full-Time,2021-11-08,29500,5.0,4.8,9.8,Yes,0.12,3540,3540,Active
+TEST076,Vikram Yadav,Sales,Sales Executive,Full-Time,2019-04-12,32000,5.3,7.4,12.7,Yes,0.12,3840,3840,Active
+TEST077,Tarun Chopra,Marketing,Marketing Manager,Full-Time,2022-10-02,87500,4.5,3.9,8.4,Yes,0.12,10500,10500,Active
+TEST078,Geeta Trivedi,Operations,Project Manager,Full-Time,2025-12-26,123000,0.0,0.7,0.7,Yes,0.12,14760,14760,Active
+TEST079,Sunita Shah,Administration,Administration Executive,Full-Time,2020-06-18,19000,2.1,6.2,8.3,Yes,0.12,2280,2280,Active
+TEST080,Ritu Trivedi,Support,Business Analyst,Full-Time,2025-01-03,75500,1.9,1.7,3.6,Yes,0.12,9060,9060,Active
+TEST081,Ajay Agarwal,IT,Software Developer,Full-Time,2026-05-05,74500,2.1,0.3,2.4,Yes,0.12,8940,8940,Active
+TEST082,Kavita Chopra,Engineering,Software Engineer,Full-Time,2023-07-18,48500,6.1,3.1,9.2,Yes,0.12,5820,5820,Active
+TEST083,Bhavna Malhotra,HR,HR Manager,Full-Time,2026-06-18,107000,2.6,0.2,2.8,Yes,0.12,12840,12840,Active
+TEST084,Deepak Saxena,Finance,Finance Executive,Full-Time,2019-03-10,53500,7.3,7.5,14.8,Yes,0.12,6420,6420,Active
+TEST085,Pooja Gupta,Accounts,Senior Accountant,Full-Time,2026-05-01,74500,0.0,0.3,0.3,Yes,0.12,8940,8940,Active
+TEST086,Sneha Saxena,Sales,Sales Executive,Full-Time,2024-04-25,19500,0.7,2.3,3.0,Yes,0.12,2340,2340,Active
+TEST087,Prakash Mehta,Marketing,Marketing Manager,Contract,2025-05-17,98500,4.7,1.3,6.0,Yes,0.12,11820,11820,Active
+TEST088,Kavita Menon,Operations,Project Manager,Full-Time,2020-04-14,108500,5.3,6.4,11.7,Yes,0.12,13020,13020,Active
+TEST089,Aman Chauhan,Administration,Office Administrator,Full-Time,2019-07-07,26000,6.6,7.2,13.8,Yes,0.12,3120,3120,Active
+TEST090,Deepika Saxena,Support,Business Analyst,Full-Time,2021-06-22,42000,6.7,5.2,11.9,Yes,0.12,5040,5040,Active
+TEST091,Nikhil Yadav,IT,Software Developer,Full-Time,2021-01-06,40000,7.6,5.6,13.2,Yes,0.12,4800,4800,Active
+TEST092,Suresh Bhatia,Engineering,Project Manager,Full-Time,2018-05-24,96000,0.0,8.3,8.3,Yes,0.12,11520,11520,Active
+TEST093,Sanjay Kapoor,HR,HR Manager,Full-Time,2021-04-05,63500,4.8,5.4,10.2,Yes,0.12,7620,7620,Active
+TEST094,Vidya Bhatia,Finance,Finance Executive,Full-Time,2023-01-09,35000,2.0,3.6,5.6,Yes,0.12,4200,4200,Active
+TEST095,Deepika Malhotra,Accounts,Senior Accountant,Full-Time,2020-02-19,55000,2.6,6.5,9.1,Yes,0.12,6600,6600,Active
+TEST096,Ravi Shah,Sales,Sales Manager,Full-Time,2023-10-15,89500,0.6,2.9,3.5,Yes,0.12,10740,10740,Active
+TEST097,Yash Kumar,Marketing,Marketing Executive,Full-Time,2026-02-17,31000,6.3,0.5,6.8,Yes,0.12,3720,3720,Active
+TEST098,Yash Gupta,Operations,Operations Executive,Full-Time,2018-12-29,33000,3.4,7.7,11.1,Yes,0.12,3960,3960,Active
+TEST099,Aman Mehta,Administration,Administration Executive,Full-Time,2021-05-08,26000,0.0,5.3,5.3,Yes,0.12,3120,3120,Active
+TEST100,Sanjay Saxena,Support,Business Analyst,Full-Time,2024-03-23,46500,5.4,2.4,7.8,Yes,0.12,5580,5580,Active
