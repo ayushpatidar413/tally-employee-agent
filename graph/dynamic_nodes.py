@@ -14,7 +14,19 @@ from services.dynamic_query_service import (
     run_sql_aggregate,
     run_sql_distinct_count,
 )
+from langchain_google_genai import ChatGoogleGenerativeAI
+from dotenv import load_dotenv
 
+load_dotenv()
+
+# ============================================================
+# UNIVERSAL QUERY PLANNER LLM
+# ============================================================
+
+_dynamic_query_llm = ChatGoogleGenerativeAI(
+    model="gemini-3.6-flash",
+    temperature=0
+)
 
 # ============================================================
 # STATE
@@ -22,7 +34,8 @@ from services.dynamic_query_service import (
 
 class DynamicAgentState(TypedDict, total=False):
     question: str
-
+    original_question: str
+    query_plan: Dict[str, Any]
     dataset_id: Optional[int]
     dataset_type: Optional[str]
 
@@ -51,6 +64,7 @@ class DynamicAgentState(TypedDict, total=False):
     sort_direction: Optional[str]
 
     result: Dict[str, Any]
+    chart: Dict[str,Any]
     answer: str
     error: Optional[str]
     export_requested: bool
@@ -69,12 +83,247 @@ def _normalize_text(value: Any) -> str:
     text = str(value).strip().lower()
 
     text = text.replace("_", " ")
-    text = text.replace("-", " ")
+    text = re.sub(r"(?<!\d)-|-(?!\d)", " ", text)
     text = re.sub(r"\s+", " ", text)
 
     return text
 
+def _normalize_query(question: Any) -> str:
+    """
+    Normalize only the user's query.
 
+    IMPORTANT:
+    Do not use this for dataset values or source columns.
+
+    This layer:
+    1. normalizes spacing / separators
+    2. corrects common business-query spelling mistakes
+    3. keeps the underlying dataset values untouched
+    """
+    text = _normalize_text(question)
+
+    if not text:
+        return ""
+
+    # --------------------------------------------------------
+    # Common query spelling / typing corrections
+    # --------------------------------------------------------
+    corrections = {
+        # ---------------- SALES ----------------
+        "sal": "sales",
+        "sals": "sales",
+        "sale": "sales",
+        "salees": "sales",
+        "saless": "sales",
+        "salse": "sales",
+        "salses": "sales",
+
+        # ---------------- REVENUE ----------------
+        "revenu": "revenue",
+        "reveneu": "revenue",
+        "revene": "revenue",
+        "revenuee": "revenue",
+        "revnue": "revenue",
+        "revinue": "revenue",
+
+        # ---------------- PRODUCT ----------------
+        "prodcut": "product",
+        "prodct": "product",
+        "produc": "product",
+        "prodcuts": "products",
+        "produts": "products",
+        "produtc": "product",
+
+        # ---------------- CUSTOMER ----------------
+        "custmer": "customer",
+        "custmor": "customer",
+        "custumer": "customer",
+        "customr": "customer",
+        "custmers": "customers",
+        "custmors": "customers",
+        "custumer": "customer",
+        "coustomer": "customer",
+        "coustmers": "customers",
+
+        # ---------------- SUPPLIER ----------------
+        "suplier": "supplier",
+        "supplir": "supplier",
+        "suppler": "supplier",
+        "supplierss": "suppliers",
+        "supliers": "suppliers",
+
+        # ---------------- QUANTITY ----------------
+        "quanity": "quantity",
+        "quantitiy": "quantity",
+        "quantitty": "quantity",
+        "quantty": "quantity",
+        "quntity": "quantity",
+        "quantiy": "quantity",
+        "qantity": "quantity",
+        "qty": "quantity",
+
+        # ---------------- PROFIT ----------------
+        "profitt": "profit",
+        "profot": "profit",
+        "proft": "profit",
+        "profi": "profit",
+        "profti": "profit",
+        "prof": "profit",
+        "profits": "profits",
+
+        # ---------------- DISCOUNT ----------------
+        "discont": "discount",
+        "discunt": "discount",
+        "disocunt": "discount",
+        "discout": "discount",
+        "discnt": "discount",
+        "discunts": "discounts",
+
+        # ---------------- AMOUNT ----------------
+        "amout": "amount",
+        "ammount": "amount",
+        "amnt": "amount",
+        "amunt": "amount",
+
+        # ---------------- INVOICE ----------------
+        "invoce": "invoice",
+        "invocie": "invoice",
+        "invoie": "invoice",
+        "invoise": "invoice",
+        "invoic": "invoice",
+        "invoices": "invoices",
+
+        # ---------------- MONTH ----------------
+        "mont": "month",
+        "mnth": "month",
+        "moth": "month",
+        "monht": "month",
+        "mounth": "month",
+        "months": "months",
+
+        # ---------------- YEAR ----------------
+        "yer": "year",
+        "yeer": "year",
+        "yar": "year",
+        "yaer": "year",
+        "yeare": "year",
+
+        # ---------------- QUARTER ----------------
+        "quater": "quarter",
+        "quartre": "quarter",
+        "qaurter": "quarter",
+        "quartr": "quarter",
+        "quaterly": "quarterly",
+        "qtr": "quarter",
+
+        # ---------------- DATE ----------------
+        "dat": "date",
+        "dte": "date",
+        "daet": "date",
+
+        # ---------------- CATEGORY ----------------
+        "catagory": "category",
+        "categary": "category",
+        "categry": "category",
+        "catgory": "category",
+        "categoy": "category",
+
+        # ---------------- EMPLOYEE ----------------
+        "employe": "employee",
+        "emplyee": "employee",
+        "employ": "employee",
+        "employess": "employees",
+        "employes": "employees",
+
+        # ---------------- PAYMENT ----------------
+        "paymant": "payment",
+        "payement": "payment",
+        "pament": "payment",
+        "paymnt": "payment",
+
+        # ---------------- GST ----------------
+        "gts": "gst",
+        "gstt": "gst",
+
+        # ---------------- COST ----------------
+        "coast": "cost",
+        "cst": "cost",
+        "costt": "cost",
+
+        # ---------------- AVERAGE ----------------
+        "avrage": "average",
+        "averge": "average",
+        "avarege": "average",
+        "avergae": "average",
+        "avragee": "average",
+        "avg": "average",
+
+        # ---------------- HIGHEST / LOWEST ----------------
+        "higest": "highest",
+        "heighest": "highest",
+        "highst": "highest",
+        "higgest": "highest",
+        "hightest": "highest",
+
+        "lowst": "lowest",
+        "lowes": "lowest",
+        "lowset": "lowest",
+        "lowestt": "lowest",
+
+        # ---------------- TOP / BOTTOM ----------------
+        "topp": "top",
+        "botom": "bottom",
+        "botton": "bottom",
+        "buttom": "bottom",
+
+        # ---------------- LAST / LATEST / PREVIOUS ----------------
+        "lst": "last",
+        "las": "last",
+        "laast": "last",
+
+        "latst": "latest",
+        "lates": "latest",
+        "latestt": "latest",
+
+        "previus": "previous",
+        "prevous": "previous",
+        "prevoius": "previous",
+
+        # ---------------- GROUPING ----------------
+        "wis": "wise",
+        "wse": "wise",
+        "wisee": "wise",
+        "accordng": "according",
+        "acording": "according",
+        "accordin": "according",
+
+        # ---------------- COMMON QUERY WORDS ----------------
+        "whch": "which",
+        "whta": "what",
+        "waht": "what",
+        "showw": "show",
+        "shwo": "show",
+        "giv": "give",
+        "gve": "give",
+    }
+
+    words = text.split()
+    words = text.split()
+
+    corrected_words = []
+
+    for word in words:
+        match = re.match(r'^([^A-Za-z0-9]*)(.*?)([^A-Za-z0-9]*)$', word)
+
+        if match:
+            prefix, core, suffix = match.groups()
+        else:
+            prefix, core, suffix = '', word, ''
+
+        corrected_core = corrections.get(core, core)
+        corrected_words.append(prefix + corrected_core + suffix)
+
+    return ' '.join(corrected_words)
 def _normalize_column(value: Any) -> str:
     text = _normalize_text(value)
 
@@ -809,7 +1058,7 @@ def _resolve_column(
     columns = _dataset_columns(
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     requested_norm = _normalize_column(
@@ -1102,7 +1351,7 @@ def _find_date_column(
     columns = _dataset_columns(
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     for column in columns:
@@ -1439,7 +1688,7 @@ def _extract_requested_columns(
     columns = _dataset_columns(
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     question_norm = _normalize_text(question)
@@ -1606,6 +1855,7 @@ def _extract_requested_columns(
     # ========================================================
 
     def process_candidate(candidate: str) -> None:
+        
         if candidate is None:
             return
 
@@ -1667,7 +1917,7 @@ def _extract_requested_columns(
                     "amount",
                     dataset,
                     schema,
-                    rows,
+                    [],
                 )
 
                 if resolved_sales:
@@ -1737,7 +1987,7 @@ def _extract_requested_columns(
                     alias,
                     dataset,
                     schema,
-                    rows,
+                    [],
                 )
 
                 if resolved_alias:
@@ -1764,7 +2014,7 @@ def _extract_requested_columns(
             candidate,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if resolved:
@@ -1838,6 +2088,25 @@ def _extract_requested_columns(
             "payment",
             "payments",
             "summary",
+            "count",
+            "counts",
+            "year",
+            "years",
+            "yearly",
+            "annual",
+            "month",
+            "months",
+            "monthly",
+            "quarter",
+            "quarters",
+            "quarterly",
+            "day",
+            "days",
+            "daily",
+            "week",
+            "weeks",
+            "weekly",
+            "trend",
             "wise",
             "show",
             "give",
@@ -1907,6 +2176,24 @@ def _extract_requested_columns(
             r".*\bby\b",
             candidate_norm,
             flags=re.IGNORECASE,
+        ):
+            return
+        
+        # Ignore aggregate/time/grouping suffixes attached to a valid metric.
+        candidate_clean = re.sub(
+            r"\b(?:year|years|yearly|annual|month|months|monthly|quarter|quarters|quarterly|day|days|daily|week|weeks|weekly|wise|trend)\b",
+            " ",
+            candidate_norm,
+            flags=re.IGNORECASE,
+        )
+
+        candidate_clean = re.sub(r"\s+", " ", candidate_clean).strip()
+
+        if candidate_clean and _resolve_column(
+            candidate_clean,
+            dataset,
+            schema,
+                    [],
         ):
             return
         # ----------------------------------------------------
@@ -2343,7 +2630,7 @@ def _extract_numeric_filters(
             metric_name,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if column:
@@ -2792,7 +3079,7 @@ def _extract_categorical_filters(
             raw_column,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if not column:
@@ -2833,7 +3120,7 @@ def _extract_categorical_filters(
             "payment mode",
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if not payment_column:
@@ -2841,7 +3128,7 @@ def _extract_categorical_filters(
                 "payment method",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         if payment_column and _to_number(payment_value) is None:
@@ -2881,7 +3168,7 @@ def _extract_categorical_filters(
             "invoice no",
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if not invoice_column:
@@ -2889,7 +3176,7 @@ def _extract_categorical_filters(
                 "invoice number",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         if invoice_column:
@@ -2898,6 +3185,59 @@ def _extract_categorical_filters(
                     "column": invoice_column,
                     "operator": "=",
                     "value": invoice_value,
+                    "type": "categorical",
+                }
+            )
+            
+    # ============================================================
+    # NATURAL INTERSTATE / INTRASTATE PHRASE
+    #
+    # Examples:
+    #   sales for interstate transactions
+    #   sales for inter-state transactions
+    #   sales for intrastate transactions
+    #   sales for intra-state transactions
+    #
+    # Dataset representation:
+    #   InterState = Yes -> interstate
+    #   InterState = No  -> intrastate
+    # ============================================================
+
+    interstate_match = re.search(
+        r"\b(?:inter[\s-]?state)\s+transactions?\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    )
+
+    intrastate_match = re.search(
+        r"\bintra[\s-]?state\s+transactions?\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    )
+
+    interstate_column = _resolve_column(
+        "InterState",
+        dataset,
+        schema,
+                    [],
+    )
+
+    if interstate_column:
+        if interstate_match:
+            filters.append(
+                {
+                    "column": interstate_column,
+                    "operator": "=",
+                    "value": "Yes",
+                    "type": "categorical",
+                }
+            )
+        elif intrastate_match:
+            filters.append(
+                {
+                    "column": interstate_column,
+                    "operator": "=",
+                    "value": "No",
                     "type": "categorical",
                 }
             )
@@ -2923,7 +3263,7 @@ def _extract_categorical_filters(
             "employee id",
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if employee_id_column:
@@ -2960,7 +3300,7 @@ def _extract_categorical_filters(
             raw_column,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if not column:
@@ -3004,9 +3344,15 @@ def _extract_categorical_filters(
     )
 
     if filter_clause_match:
-        dynamic_value_question = (
-            filter_clause_match.group(1).strip()
-        )
+        # Keep the complete question available for dynamic
+        # value discovery.
+        #
+        # Example:
+        #   "... for Delhi with UPI payments"
+        #
+        # We must still discover Delhi even though UPI
+        # appears after "with".
+        dynamic_value_question = question_norm
 
     dynamic_value_question_tokens = set(
         _tokens(dynamic_value_question)
@@ -3079,6 +3425,14 @@ def _extract_categorical_filters(
         "turnover",
         "billing",
         "profit",
+        "by",
+        "per",
+        "each",
+        "wise",
+        "group",
+        "grouped",
+        "please",
+        "me",
 
         "customer",
         "customers",
@@ -3166,6 +3520,17 @@ def _extract_categorical_filters(
     if not meaningful_question_tokens:
         return _deduplicate_filters(filters)
 
+    # Load persisted rows only when dynamic categorical matching is required.
+    # Planner context may not contain rows, so use the actual dataset ID.
+    if not rows:
+        try:
+            dataset_id = dataset.get("id")
+            if dataset_id is not None:
+                rows = load_dataset_rows(int(dataset_id))
+        except Exception:
+            rows = []
+
+
     # ============================================================
     # 9. GET DATASET COLUMNS ONLY WHEN DYNAMIC MATCHING IS NEEDED
     # ============================================================
@@ -3173,7 +3538,7 @@ def _extract_categorical_filters(
     columns = _dataset_columns(
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     # ============================================================
@@ -3225,6 +3590,83 @@ def _extract_categorical_filters(
 
         # Keep existing safety limit.
         unique_values = unique_values[:1000]
+
+        # ============================================================
+        # MULTIPLE EXACT VALUES FROM THE SAME COLUMN
+        #
+        # Example:
+        #   "Show sales for Delhi and Maharashtra"
+        #
+        # becomes:
+        #   PartyState IN ["Delhi", "Maharashtra"]
+        #
+        # This is intentionally handled before the existing
+        # single-value matcher so the existing break-based logic
+        # remains unchanged for normal queries.
+        # ============================================================
+
+        multi_value_matches = []
+
+        for candidate_value in unique_values:
+            normalized_candidate = _normalize_text(
+                candidate_value
+            )
+
+            if len(normalized_candidate) < 2:
+                continue
+
+            if _to_number(candidate_value) is not None:
+                continue
+
+            if _parse_date(candidate_value) is not None:
+                continue
+
+            if normalized_candidate in dynamic_value_question:
+                multi_value_matches.append(candidate_value)
+
+        # An exact whole-word dataset value found in the question takes
+        # precedence over partial token matching. Without this, a longer
+        # value that shares one token ("Shalini Sharma" for "Pooja Sharma")
+        # is reached first in the loop below and wins.
+        if len(multi_value_matches) == 1:
+            exact_candidate = multi_value_matches[0]
+            exact_normalized = _normalize_text(exact_candidate)
+            exact_tokens = {
+                token
+                for token in _tokens(exact_normalized)
+                if len(token) >= 2 and token not in ignored_query_words
+            }
+
+            if (
+                exact_tokens
+                and exact_normalized != _normalize_column(column)
+                and re.search(
+                    r"\b" + re.escape(exact_normalized) + r"\b",
+                    dynamic_value_question,
+                )
+            ):
+                filters.append(
+                    {
+                        "column": column,
+                        "operator": "=",
+                        "value": exact_candidate,
+                        "type": "categorical",
+                    }
+                )
+                continue
+
+        # Only use the multi-value operator when at least two
+        # distinct dataset values are explicitly present.
+        if len(multi_value_matches) >= 2:
+            filters.append(
+                {
+                    "column": column,
+                    "operator": "in",
+                    "value": multi_value_matches,
+                    "type": "categorical",
+                }
+            )
+            continue
 
         for value in unique_values:
 
@@ -3326,8 +3768,8 @@ def _extract_categorical_filters(
                             other_value
                         )
 
-                        if len(token_matches) > 1:
-                            break
+                        # Collect ALL values sharing the token. Stopping at two
+                        # would silently drop the rest (e.g. 6 'Sharma' parties).
 
                 # If the token uniquely identifies this
                 # dataset value, use it.
@@ -3342,18 +3784,24 @@ def _extract_categorical_filters(
                     )
                     break
 
-                # If multiple values contain the token,
-                # require all meaningful tokens.
+                # If multiple dataset values contain the same
+                # partial token, preserve ALL matching values
+                # instead of arbitrarily selecting one.
+                #
+                # Example:
+                #   Pooja -> Pooja Patel + Pooja Sharma
+                #
+                # This keeps partial-name matching deterministic
+                # and prevents guessing a customer.
                 if (
                     len(token_matches) > 1
                     and matched_tokens
-                    == meaningful_value_tokens
                 ):
                     filters.append(
                         {
                             "column": column,
-                            "operator": "=",
-                            "value": value,
+                            "operator": "in",
+                            "value": token_matches,
                             "type": "categorical",
                         }
                     )
@@ -3417,7 +3865,7 @@ def _extract_date_comparison(
     date_column = _find_date_column(
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     if not date_column:
@@ -3502,34 +3950,100 @@ def _extract_period_comparison(
     """
     Detect comparison between two months or two years.
 
-    Examples:
+    Supports:
         Compare September 2026 with August 2026
         Compare September sales with August sales
         Compare 2026 sales with 2025 sales
+        What is the sales percentage increase from July 2025 to August 2025?
+        Did sales increase or decrease in August 2025 compared to July 2025?
         Show month over month sales growth
-        How much did sales increase this month compared to last month?
-
-    Returns:
-        {
-            "column": "Bill Date",
-            "period_type": "month",
-            "period_1": "2026-09",
-            "period_2": "2026-08",
-        }
-
-    or None when no period comparison is detected.
     """
 
     date_column = _find_date_column(
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     if not date_column:
         return None
 
     question_norm = _normalize_text(question)
+
+    # ========================================================
+    # Detect the metric dynamically
+    # ========================================================
+
+    metric_patterns = [
+        (
+            r"\b(?:profit|profitability)\b",
+            "profit",
+            "Profit",
+        ),
+        (
+            r"\b(?:total\s+gst|gst|gst\s+amount)\b",
+            "gst",
+            "GST",
+        ),
+        (
+            r"\bcgst\b",
+            "cgst",
+            "CGST",
+        ),
+        (
+            r"\bsgst\b",
+            "sgst",
+            "SGST",
+        ),
+        (
+            r"\bigst\b",
+            "igst",
+            "IGST",
+        ),
+        (
+            r"\b(?:discount|discount\s+amount)\b",
+            "discount",
+            "Discount",
+        ),
+        (
+            r"\b(?:quantity|qty)\b",
+            "quantity",
+            "Quantity",
+        ),
+        (
+            r"\b(?:taxable\s+amount|taxable)\b",
+            "taxable_amount",
+            "Taxable Amount",
+        ),
+        (
+            r"\b(?:gross\s+amount|gross)\b",
+            "gross_amount",
+            "Gross Amount",
+        ),
+        (
+            r"\bcost\b",
+            "cost",
+            "Cost",
+        ),
+        (
+            r"\b(?:unit\s+price|unitprice)\b",
+            "unit_price",
+            "Unit Price",
+        ),
+    ]
+
+    metric_key = "sales"
+    metric_label = "Sales"
+
+    for pattern, key, label in metric_patterns:
+        if re.search(pattern, question_norm):
+            metric_key = key
+            metric_label = label
+            break
+
+    # ========================================================
+    # Month names
+    # ========================================================
 
     month_names = {
         "january": 1,
@@ -3545,49 +4059,38 @@ def _extract_period_comparison(
         "november": 11,
         "december": 12,
     }
+    
+    # ========================================================
+    # Explicit day-to-day comparison
+    # ========================================================
 
-    # --------------------------------------------------------
-    # Explicit month-to-month comparison
-    #
-    # Examples:
-    #   Compare September 2026 with August 2026
-    #   Compare September sales with August sales
-    # --------------------------------------------------------
-
-    month_matches = re.findall(
-        r"\b("
-        r"january|february|march|april|may|june|"
-        r"july|august|september|october|november|december"
-        r")"
+    day_matches = re.findall(
+        r"\b(\d{1,2})\s+"
+        r"(january|february|march|april|may|june|"
+        r"july|august|september|october|november|december)"
         r"(?:\s+(20\d{2}))?\b",
         question_norm,
     )
 
-    if len(month_matches) >= 2:
-        first_month_name, first_year = month_matches[0]
-        second_month_name, second_year = month_matches[1]
+    if len(day_matches) >= 2:
+
+        first_day, first_month_name, first_year = day_matches[0]
+        second_day, second_month_name, second_year = day_matches[1]
 
         first_month = month_names[first_month_name]
         second_month = month_names[second_month_name]
 
-        # If years are explicitly provided, use them.
-        if first_year:
-            year_1 = int(first_year)
-        else:
-            year_1 = None
-
-        if second_year:
-            year_2 = int(second_year)
-        else:
-            year_2 = None
-
-        # If one or both years are omitted, infer them from
-        # available dataset dates.
         available_dates = []
 
         for row in rows:
+            row_data = (
+                row.get("data", row)
+                if isinstance(row, dict)
+                else {}
+            )
+
             parsed_date = _parse_date(
-                row.get(date_column)
+                row_data.get(date_column)
             )
 
             if parsed_date:
@@ -3596,27 +4099,113 @@ def _extract_period_comparison(
         if available_dates:
             latest_date = max(available_dates)
 
-            if year_1 is None:
+            # If only one month has an explicit year, apply that
+            # year to both months.
+            if first_year:
+                year_1 = int(first_year)
+            elif second_year:
+                year_1 = int(second_year)
+            else:
                 year_1 = latest_date.year
 
-            if year_2 is None:
+            if second_year:
+                year_2 = int(second_year)
+            elif first_year:
+                year_2 = int(first_year)
+            else:
                 year_2 = latest_date.year
 
-        if year_1 is not None and year_2 is not None:
+            return {
+                "column": date_column,
+                "period_type": "day",
+
+                # Preserve the user's requested order.
+                "period_1": (
+                    f"{year_1:04d}-{first_month:02d}-{int(first_day):02d}"
+                ),
+                "period_2": (
+                    f"{year_2:04d}-{second_month:02d}-{int(second_day):02d}"
+                ),
+
+                "metric_key": metric_key,
+                "metric_label": metric_label,
+            }
+
+    # ========================================================
+    # Explicit month-to-month comparison
+    # ========================================================
+   
+    month_matches = re.findall(
+        r"\b("
+        r"january|february|march|april|may|june|"
+        r"july|august|september|october|november|december"
+        r")"
+        r"(?:\s*(20\d{2}))?\b",
+        question_norm,
+    )
+
+    if len(month_matches) >= 2:
+
+        first_month_name, first_year = month_matches[0]
+        second_month_name, second_year = month_matches[1]
+
+        first_month = month_names[first_month_name]
+        second_month = month_names[second_month_name]
+
+        available_dates = []
+
+        for row in rows:
+            row_data = (
+                row.get("data", row)
+                if isinstance(row, dict)
+                else {}
+            )
+
+            parsed_date = _parse_date(
+                row_data.get(date_column)
+            )
+
+            if parsed_date:
+                available_dates.append(parsed_date)
+
+        if available_dates:
+            latest_date = max(available_dates)
+
+            # If only one month has an explicit year, apply that
+            # year to both months.
+            if first_year:
+                year_1 = int(first_year)
+            elif second_year:
+                year_1 = int(second_year)
+            else:
+                year_1 = latest_date.year
+
+            if second_year:
+                year_2 = int(second_year)
+            elif first_year:
+                year_2 = int(first_year)
+            else:
+                year_2 = latest_date.year
+
             return {
                 "column": date_column,
                 "period_type": "month",
-                "period_1": f"{year_1:04d}-{first_month:02d}",
-                "period_2": f"{year_2:04d}-{second_month:02d}",
+
+                # Preserve the user's requested order.
+                "period_1": (
+                    f"{year_1:04d}-{first_month:02d}"
+                ),
+                "period_2": (
+                    f"{year_2:04d}-{second_month:02d}"
+                ),
+
+                "metric_key": metric_key,
+                "metric_label": metric_label,
             }
 
-    # --------------------------------------------------------
+    # ========================================================
     # Explicit year-to-year comparison
-    #
-    # Examples:
-    #   Compare 2026 sales with 2025 sales
-    #   Compare 2026 with 2025
-    # --------------------------------------------------------
+    # ========================================================
 
     year_matches = re.findall(
         r"\b(20\d{2})\b",
@@ -3632,21 +4221,22 @@ def _extract_period_comparison(
             unique_years.append(year)
 
     if len(unique_years) >= 2:
+
         return {
             "column": date_column,
             "period_type": "year",
+
+            # Preserve question order.
             "period_1": str(unique_years[0]),
             "period_2": str(unique_years[1]),
+
+            "metric_key": metric_key,
+            "metric_label": metric_label,
         }
 
-    # --------------------------------------------------------
+    # ========================================================
     # Month-over-month comparison
-    #
-    # Examples:
-    #   Show month over month sales growth
-    #   How much did sales increase this month compared to
-    #   last month?
-    # --------------------------------------------------------
+    # ========================================================
 
     mom_query = bool(
         re.search(
@@ -3666,11 +4256,18 @@ def _extract_period_comparison(
     )
 
     if mom_query:
+
         available_dates = []
 
         for row in rows:
+            row_data = (
+                row.get("data", row)
+                if isinstance(row, dict)
+                else {}
+            )
+
             parsed_date = _parse_date(
-                row.get(date_column)
+                row_data.get(date_column)
             )
 
             if parsed_date:
@@ -3695,11 +4292,13 @@ def _extract_period_comparison(
             "column": date_column,
             "period_type": "month",
             "period_1": (
-                f"{current_year:04d}-{current_month:02d}"
-            ),
-            "period_2": (
                 f"{previous_year:04d}-{previous_month:02d}"
             ),
+            "period_2": (
+                f"{current_year:04d}-{current_month:02d}"
+            ),
+            "metric_key": metric_key,
+            "metric_label": metric_label,
         }
 
     return None
@@ -3715,11 +4314,38 @@ def _extract_date_filters(
     date_column = _find_date_column(
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     if not date_column:
         return filters
+
+    # Explicit quarter filters: Q1/Q2/Q3/Q4 + year
+    quarter_match = re.search(
+        r'\bQ([1-4])\s*(?:of|[-/ ]*)?\s*(20\d{2})\b',
+        question,
+        flags=re.IGNORECASE,
+    )
+    if not quarter_match:
+        quarter_match = re.search(
+            r'\b(?:quarter|qtr)\s*([1-4])\s*(?:of|[-/ ]*)?\s*(20\d{2})\b',
+            question,
+            flags=re.IGNORECASE,
+        )
+    if quarter_match:
+        quarter = int(quarter_match.group(1))
+        year = int(quarter_match.group(2))
+        start_month = (quarter - 1) * 3 + 1
+        start_date = f'{year:04d}-{start_month:02d}-01'
+        end_date = (
+            f'{year + 1:04d}-01-01'
+            if quarter == 4
+            else f'{year:04d}-{start_month + 3:02d}-01'
+        )
+        return [
+            {'column': date_column, 'operator': '>=', 'value': start_date, 'type': 'date'},
+            {'column': date_column, 'operator': '<', 'value': end_date, 'type': 'date'},
+        ]
 
     question_norm = _normalize_text(question)
 
@@ -3884,6 +4510,11 @@ def _extract_date_filters(
             numeric_date_filters_added = True
 
     # ========================================================
+    # Numeric date/month filters are complete.
+    # Do not allow later temporal logic to modify them.
+    if numeric_date_filters_added:
+        return _deduplicate_filters(filters)
+
     # NATURAL LANGUAGE DAY + MONTH + YEAR
     #
     # Examples:
@@ -4046,7 +4677,647 @@ def _extract_date_filters(
             }
         )
 
-       # --------------------------------------------------------
+    # --------------------------------------------------------
+    # RELATIVE AVAILABLE MONTH / LAST N MONTHS
+    # --------------------------------------------------------
+    # Use periods actually available in the uploaded dataset.
+    #
+    # Supported:
+    #   latest month
+    #   last month
+    #   previous month
+    #   last N months
+    #
+    # "latest" = latest available period
+    # "last"/"previous" = previous available period
+    # "last N months" = latest N available monthly periods
+    #
+    # Missing months are NOT converted to zero.
+
+    relative_month_match = re.search(
+        r"\b(?:latest|last|previous)\s+(?:available\s+)?"
+        r"(?:month|months)\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    )
+
+    relative_n_month_match = re.search(
+        r"\b(?:last|previous)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+months?\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    )
+
+    first_n_month_match = re.search(
+        r"\bfirst\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+months?\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    )
+
+    if relative_month_match or relative_n_month_match or first_n_month_match:
+        available_dates = []
+
+        for row in rows:
+            row_data = (
+                row.get("data", row)
+                if isinstance(row, dict)
+                else {}
+            )
+
+            parsed_date = _parse_date(
+                row_data.get(date_column)
+            )
+
+            if parsed_date:
+                available_dates.append(parsed_date)
+
+        if available_dates:
+            available_months = sorted(
+                {
+                    (parsed_date.year, parsed_date.month)
+                    for parsed_date in available_dates
+                }
+            )
+
+            # ----------------------------------------------------
+            # LAST N MONTHS
+            # FIRST / LAST / PREVIOUS N MONTHS
+            # ----------------------------------------------------
+            if relative_n_month_match or first_n_month_match:
+                n_match = relative_n_month_match or first_n_month_match
+                n_value = n_match.group(1).lower()
+
+                word_to_number = {
+                    "one": 1,
+                    "two": 2,
+                    "three": 3,
+                    "four": 4,
+                    "five": 5,
+                    "six": 6,
+                    "seven": 7,
+                    "eight": 8,
+                    "nine": 9,
+                    "ten": 10,
+                    "eleven": 11,
+                    "twelve": 12,
+                }
+
+                requested_n = (
+                    int(n_value)
+                    if n_value.isdigit()
+                    else word_to_number.get(n_value)
+                )
+
+                if not requested_n:
+                    requested_n = 1
+
+                if first_n_month_match:
+                    selected_months = available_months[:requested_n]
+
+                elif re.search(
+                    r"\bprevious\s+",
+                    question_norm,
+                    flags=re.IGNORECASE,
+                ):
+                    selected_months = available_months[
+                        -requested_n - 1:-1
+                    ]
+
+                else:
+                    selected_months = available_months[-requested_n:]
+
+                if selected_months:
+                    start_year, start_month = selected_months[0]
+                    end_year, end_month = selected_months[-1]
+
+                    start_date = (
+                        f"{start_year:04d}-{start_month:02d}-01"
+                    )
+
+                    if end_month == 12:
+                        next_year = end_year + 1
+                        next_month = 1
+                    else:
+                        next_year = end_year
+                        next_month = end_month + 1
+
+                    end_date_exclusive = (
+                        f"{next_year:04d}-{next_month:02d}-01"
+                    )
+
+                    filters.extend(
+                        [
+                            {
+                                "column": date_column,
+                                "operator": ">=",
+                                "value": start_date,
+                                "type": "date",
+                            },
+                            {
+                                "column": date_column,
+                                "operator": "<",
+                                "value": end_date_exclusive,
+                                "type": "date",
+                            },
+                        ]
+                    )
+
+            # ----------------------------------------------------
+            # SINGLE RELATIVE MONTH
+            # ----------------------------------------------------
+            else:
+                latest_year, latest_month = available_months[-1]
+
+                relative_text = (
+                    relative_month_match.group(0).lower()
+                )
+
+                if relative_text.startswith(
+                    ("last", "previous")
+                ) and len(available_months) >= 2:
+                    target_year, target_month = (
+                        available_months[-2]
+                    )
+                else:
+                    target_year, target_month = (
+                        latest_year,
+                        latest_month,
+                    )
+
+                filters.extend(
+                    [
+                        {
+                            "column": date_column,
+                            "operator": "year",
+                            "value": target_year,
+                            "type": "date",
+                        },
+                        {
+                            "column": date_column,
+                            "operator": "month",
+                            "value": target_month,
+                            "type": "date",
+                        },
+                    ]
+                )
+    # --------------------------------------------------------
+    # FIRST / LAST / PREVIOUS N YEARS, QUARTERS, DAYS
+    # Use only periods actually available in the dataset.
+    # --------------------------------------------------------
+
+    # --------------------------------------------------------
+    # SINGLE FIRST YEAR
+    # first year -> first available year
+    # --------------------------------------------------------
+
+    first_single_year_match = re.search(
+        r"\bfirst\s+(?:available\s+)?year\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    )
+
+    if first_single_year_match:
+        available_years = sorted(
+            {
+                parsed_date.year
+                for row in rows
+                for row_data in [
+                    row.get("data", row)
+                    if isinstance(row, dict)
+                    else {}
+                ]
+                for parsed_date in [_parse_date(row_data.get(date_column))]
+                if parsed_date
+            }
+        )
+
+        if available_years:
+            target_year = available_years[0]
+
+            filters.extend(
+                [
+                    {
+                        "column": date_column,
+                        "operator": ">=",
+                        "value": f"{target_year:04d}-01-01",
+                        "type": "date",
+                    },
+                    {
+                        "column": date_column,
+                        "operator": "<",
+                        "value": f"{target_year + 1:04d}-01-01",
+                        "type": "date",
+                    },
+                ]
+            )
+
+    # --------------------------------------------------------
+    # SINGLE RELATIVE YEAR
+    # latest year  -> latest available year
+    # last year     -> previous available year
+    # previous year -> previous available year
+    # --------------------------------------------------------
+
+    relative_single_year_match = re.search(
+        r"\b(latest|last|previous)\s+(?:available\s+)?year\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    )
+
+    if relative_single_year_match:
+        available_years = sorted(
+            {
+                parsed_date.year
+                for row in rows
+                for row_data in [
+                    row.get("data", row)
+                    if isinstance(row, dict)
+                    else {}
+                ]
+                for parsed_date in [_parse_date(row_data.get(date_column))]
+                if parsed_date
+            }
+        )
+
+        if available_years:
+            direction = relative_single_year_match.group(1).lower()
+
+            if direction == "latest":
+                target_year = available_years[-1]
+            elif len(available_years) >= 2:
+                target_year = available_years[-2]
+            else:
+                target_year = available_years[-1]
+
+            filters.extend(
+                [
+                    {
+                        "column": date_column,
+                        "operator": ">=",
+                        "value": f"{target_year:04d}-01-01",
+                        "type": "date",
+                    },
+                    {
+                        "column": date_column,
+                        "operator": "<",
+                        "value": f"{target_year + 1:04d}-01-01",
+                        "type": "date",
+                    },
+                ]
+            )
+
+    # --------------------------------------------------------
+    # SINGLE RELATIVE QUARTER
+    #
+    # latest quarter   -> latest available quarter
+    # last quarter     -> previous available quarter
+    # previous quarter -> previous available quarter
+    #
+    # Use only quarters that actually exist in the dataset.
+    # --------------------------------------------------------
+
+    relative_single_quarter_match = re.search(
+        r"\b(latest|last|previous)\s+"
+        r"(?:available\s+)?quarter\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    )
+
+    if relative_single_quarter_match:
+        available_quarters = []
+
+        for row in rows:
+            row_data = (
+                row.get("data", row)
+                if isinstance(row, dict)
+                else {}
+            )
+
+            parsed_date = _parse_date(
+                row_data.get(date_column)
+            )
+
+            if parsed_date:
+                quarter_number = (
+                    (parsed_date.month - 1) // 3
+                ) + 1
+
+                available_quarters.append(
+                    (
+                        parsed_date.year,
+                        quarter_number,
+                    )
+                )
+
+        available_quarters = sorted(
+            set(available_quarters)
+        )
+
+        if available_quarters:
+            direction = (
+                relative_single_quarter_match
+                .group(1)
+                .lower()
+            )
+
+            if (
+                direction == "latest"
+                or len(available_quarters) == 1
+            ):
+                target_year, target_quarter = (
+                    available_quarters[-1]
+                )
+            else:
+                target_year, target_quarter = (
+                    available_quarters[-2]
+                )
+
+            start_month = (
+                (target_quarter - 1) * 3
+            ) + 1
+
+            start_date = (
+                f"{target_year:04d}-"
+                f"{start_month:02d}-01"
+            )
+
+            if target_quarter == 4:
+                next_year = target_year + 1
+                next_month = 1
+            else:
+                next_year = target_year
+                next_month = (
+                    target_quarter * 3
+                ) + 1
+
+            end_date_exclusive = (
+                f"{next_year:04d}-"
+                f"{next_month:02d}-01"
+            )
+
+            filters.extend(
+                [
+                    {
+                        "column": date_column,
+                        "operator": ">=",
+                        "value": start_date,
+                        "type": "date",
+                    },
+                    {
+                        "column": date_column,
+                        "operator": "<",
+                        "value": end_date_exclusive,
+                        "type": "date",
+                    },
+                ]
+            )
+
+    # --------------------------------------------------------
+    # SINGLE RELATIVE WEEK
+    #
+    # latest week   -> latest available 7-day week
+    # last week     -> previous available 7-day week
+    # previous week -> previous available 7-day week
+    #
+    # Use only dates that actually exist in the dataset.
+    # --------------------------------------------------------
+
+    relative_single_week_match = re.search(
+        r"\b(latest|last|previous)\s+"
+        r"(?:available\s+)?week\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    )
+
+    if relative_single_week_match:
+        available_dates = []
+
+        for row in rows:
+            row_data = (
+                row.get("data", row)
+                if isinstance(row, dict)
+                else {}
+            )
+
+            parsed_date = _parse_date(
+                row_data.get(date_column)
+            )
+
+            if parsed_date:
+                available_dates.append(parsed_date.date())
+
+        available_dates = sorted(set(available_dates))
+
+        if available_dates:
+            direction = (
+                relative_single_week_match
+                .group(1)
+                .lower()
+            )
+
+            latest_date = available_dates[-1]
+
+            # Find the Monday of the latest available week.
+            latest_week_start = (
+                latest_date
+                - __import__("datetime").timedelta(
+                    days=latest_date.weekday()
+                )
+            )
+
+            if direction == "latest":
+                target_week_start = latest_week_start
+            else:
+                target_week_start = (
+                    latest_week_start
+                    - __import__("datetime").timedelta(days=7)
+                )
+
+            target_week_end = (
+                target_week_start
+                + __import__("datetime").timedelta(days=7)
+            )
+
+            filters.extend(
+                [
+                    {
+                        "column": date_column,
+                        "operator": ">=",
+                        "value": target_week_start.strftime("%Y-%m-%d"),
+                        "type": "date",
+                    },
+                    {
+                        "column": date_column,
+                        "operator": "<",
+                        "value": target_week_end.strftime("%Y-%m-%d"),
+                        "type": "date",
+                    },
+                ]
+            )
+    temporal_n_match = re.search(
+        r"\b(first|last|previous|latest)\s+"
+        r"(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+"
+        r"(days?|weeks?|quarters?|years?)\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    )
+
+    if temporal_n_match:
+        direction = temporal_n_match.group(1).lower()
+        n_value = temporal_n_match.group(2).lower()
+        period = temporal_n_match.group(3).lower()
+
+        word_to_number = {
+            "one": 1,
+            "two": 2,
+            "three": 3,
+            "four": 4,
+            "five": 5,
+            "six": 6,
+            "seven": 7,
+            "eight": 8,
+            "nine": 9,
+            "ten": 10,
+            "eleven": 11,
+            "twelve": 12,
+        }
+
+        requested_n = (
+            int(n_value)
+            if n_value.isdigit()
+            else word_to_number.get(n_value, 1)
+        )
+
+        available_dates = []
+
+        for row in rows:
+            row_data = (
+                row.get("data", row)
+                if isinstance(row, dict)
+                else {}
+            )
+
+            parsed_date = _parse_date(
+                row_data.get(date_column)
+            )
+
+            if parsed_date:
+                available_dates.append(parsed_date)
+
+        if available_dates:
+            if period.startswith("year"):
+                available_periods = sorted(
+                    {parsed_date.year for parsed_date in available_dates}
+                )
+
+                if direction == "first":
+                    selected_periods = available_periods[:requested_n]
+                else:
+                    selected_periods = available_periods[-requested_n:]
+
+                if selected_periods:
+                    start_date = f"{selected_periods[0]:04d}-01-01"
+                    end_year = selected_periods[-1] + 1
+                    end_date_exclusive = f"{end_year:04d}-01-01"
+
+                    filters.extend(
+                        [
+                            {
+                                "column": date_column,
+                                "operator": ">=",
+                                "value": start_date,
+                                "type": "date",
+                            },
+                            {
+                                "column": date_column,
+                                "operator": "<",
+                                "value": end_date_exclusive,
+                                "type": "date",
+                            },
+                        ]
+                    )
+
+            elif period.startswith("quarter"):
+                available_periods = sorted(
+                    {
+                        (
+                            parsed_date.year,
+                            ((parsed_date.month - 1) // 3) + 1,
+                        )
+                        for parsed_date in available_dates
+                    }
+                )
+
+                if direction == "first":
+                    selected_periods = available_periods[:requested_n]
+                else:
+                    selected_periods = available_periods[-requested_n:]
+
+                if selected_periods:
+                    start_year, start_quarter = selected_periods[0]
+                    end_year, end_quarter = selected_periods[-1]
+
+                    start_month = ((start_quarter - 1) * 3) + 1
+                    start_date = f"{start_year:04d}-{start_month:02d}-01"
+
+                    if end_quarter == 4:
+                        next_year = end_year + 1
+                        next_month = 1
+                    else:
+                        next_year = end_year
+                        next_month = (end_quarter * 3) + 1
+
+                    end_date_exclusive = f"{next_year:04d}-{next_month:02d}-01"
+
+                    filters.extend(
+                        [
+                            {
+                                "column": date_column,
+                                "operator": ">=",
+                                "value": start_date,
+                                "type": "date",
+                            },
+                            {
+                                "column": date_column,
+                                "operator": "<",
+                                "value": end_date_exclusive,
+                                "type": "date",
+                            },
+                        ]
+                    )
+
+            elif period.startswith("day"):
+                available_periods = sorted(
+                    {parsed_date.date() for parsed_date in available_dates}
+                )
+
+                if direction == "first":
+                    selected_periods = available_periods[:requested_n]
+                else:
+                    selected_periods = available_periods[-requested_n:]
+
+                if selected_periods:
+                    start_date = selected_periods[0].strftime("%Y-%m-%d")
+                    end_date = selected_periods[-1].strftime("%Y-%m-%d")
+
+                    filters.extend(
+                        [
+                            {
+                                "column": date_column,
+                                "operator": ">=",
+                                "value": start_date,
+                                "type": "date",
+                            },
+                            {
+                                "column": date_column,
+                                "operator": "<=",
+                                "value": end_date,
+                                "type": "date",
+                            },
+                        ]
+                    )
+
+
+    # --------------------------------------------------------
     # Date range
     #
     # Examples:
@@ -4124,6 +5395,56 @@ def _extract_date_filters(
     return _deduplicate_filters(filters)
 
 
+def _reconcile_partial_entity_filters(
+    filters: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    A partial entity (for example "Pooja") is resolved against the
+    actual dataset into a categorical "in" filter listing real values.
+    A raw "=" / "contains" filter on the same column that carries only
+    the partial value conflicts with it. It is dropped only when every
+    resolved value contains the raw value as a whole-word fragment.
+    """
+    resolved: Dict[Any, List[str]] = {}
+
+    for item in filters or []:
+        if (
+            isinstance(item, dict)
+            and str(item.get("operator", "")).lower() in {"in", "one_of"}
+            and isinstance(item.get("value"), (list, tuple, set))
+            and item.get("value")
+        ):
+            resolved.setdefault(item.get("column"), []).extend(
+                str(v).strip().lower() for v in item["value"]
+            )
+
+    if not resolved:
+        return filters
+
+    raw_operators = {
+        "=", "==", "eq", "equals", "contains", "like", "icontains",
+    }
+    result = []
+
+    for item in filters or []:
+        if (
+            isinstance(item, dict)
+            and str(item.get("operator", "")).lower() in raw_operators
+        ):
+            raw = str(item.get("value") or "").strip().lower()
+            values = resolved.get(item.get("column"))
+
+            if raw and values and all(
+                re.search(r"\b" + re.escape(raw) + r"\b", v)
+                for v in values
+            ):
+                continue
+
+        result.append(item)
+
+    return result
+
+
 def _deduplicate_filters(
     filters: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
@@ -4183,7 +5504,7 @@ def _extract_time_grouping(
     date_column = _find_date_column(
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     if not date_column:
@@ -4207,8 +5528,17 @@ def _extract_time_grouping(
     # --------------------------------------------------------
 
     if re.search(
-        r"\b(?:month|monthly)\s*(?:wise|wise)?\b",
+        r"\b(?:month|months|monthly)\s*(?:wise|wise)?\b",
         question_norm,
+    ) or (
+        re.search(
+            r"\b(?:highest|maximum|most|top|lowest|minimum|least|bottom)\b",
+            question_norm,
+        )
+        and re.search(
+            r"\bmonths?\b",
+            question_norm,
+        )
     ):
         return {
             "column": date_column,
@@ -4220,7 +5550,7 @@ def _extract_time_grouping(
     # --------------------------------------------------------
 
     if re.search(
-        r"\b(?:quarter|quarterly)\s*(?:wise|wise)?\b",
+        r"\b(?:quarter|quarters|quarterly)\s*(?:wise|wise)?\b",
         question_norm,
     ):
         return {
@@ -4233,7 +5563,7 @@ def _extract_time_grouping(
     # --------------------------------------------------------
 
     if re.search(
-        r"\b(?:year|yearly|annual)\s*(?:wise|wise)?\b",
+        r"\b(?:year|years|yearly|annual|annually)\s*(?:wise|wise)?\b",
         question_norm,
     ):
         return {
@@ -4283,12 +5613,13 @@ def _extract_group_by(
             question_norm,
         )
         and re.search(
-            r"\b(?:month|monthly|year|yearly|quarter|quarterly)\b",
+            r"\b(?:month|months|monthly|year|years|yearly|quarter|quarters|quarterly)\b",
             question_norm,
         )
         and re.search(
             r"\b(?:sales?|revenue|billing|turnover|profit|gst|"
-            r"totalgst|total\s+gst|cgst|sgst|igst|quantity|qty)\b",
+            r"totalgst|total\s+gst|cgst|sgst|igst|quantity|qty|"
+            r"invoice\s+(?:value|amount|total)|invoicevalue|invoiceamount|invoicetotal)\b",
             question_norm,
         )
     )
@@ -4298,7 +5629,7 @@ def _extract_group_by(
             question,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if time_grouping:
@@ -4319,7 +5650,7 @@ def _extract_group_by(
             question_norm,
         )
         and re.search(
-            r"\b(?:sales?|revenue|billing|turnover|profit|gst|totalgst|total\s+gst|discount|unit\s+price|unitprice|price|quantity|qty|taxable|taxable\s+amount|taxableamount|cost|gross|gross\s+amount|grossamount|cgst|sgst|igst)\b",
+            r"\b(?:sales?|revenue|billing|turnover|profit|gst|totalgst|total\s+gst|discount|unit\s+price|unitprice|price|quantity|qty|taxable|taxable\s+amount|taxableamount|cost|gross|gross\s+amount|grossamount|invoice\s+(?:value|amount|total)|invoicevalue|invoiceamount|invoicetotal|cgst|sgst|igst)\b",
             question_norm,
         )
     ):
@@ -4352,6 +5683,8 @@ def _extract_group_by(
             "gstrate",
             "state",
             "states",
+            "category",
+            "categories",
         ):
             if re.search(
                 rf"\b{re.escape(candidate)}\b",
@@ -4364,7 +5697,7 @@ def _extract_group_by(
                         "PartyState",
                         dataset,
                         schema,
-                        rows,
+                    [],
                     )
 
                     if resolved:
@@ -4374,7 +5707,7 @@ def _extract_group_by(
                     candidate,
                     dataset,
                     schema,
-                    rows,
+                    [],
                 )
 
                 if resolved:
@@ -4385,7 +5718,7 @@ def _extract_group_by(
                         "PartyType",
                         dataset,
                         schema,
-                        rows,
+                    [],
                     )
                     if resolved:
                         return resolved
@@ -4395,7 +5728,7 @@ def _extract_group_by(
                         "HSN_Code",
                         dataset,
                         schema,
-                        rows,
+                    [],
                     )
                     if resolved:
                         return resolved
@@ -4405,7 +5738,7 @@ def _extract_group_by(
                         "GST_Rate",
                         dataset,
                         schema,
-                        rows,
+                    [],
                     )
                     if resolved:
                         return resolved
@@ -4415,7 +5748,7 @@ def _extract_group_by(
                         "PartyState",
                         dataset,
                         schema,
-                        rows,
+                    [],
                     )
                     if resolved:
                         return resolved
@@ -4445,7 +5778,7 @@ def _extract_group_by(
             "attendance status",
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if resolved_status_column:
@@ -4523,7 +5856,7 @@ def _extract_group_by(
                 candidate,
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
             if resolved:
@@ -4547,10 +5880,19 @@ def _extract_group_by(
     # --------------------------------------------------------
 
     direct_by_patterns = [
-        r"\bby\s+(.+?)(?=\s+(?:where|with|having|for|from|and|or)\b|$)",
-        r"\bgroup(?:ed)?\s+by\s+(.+?)(?=\s+(?:where|with|having|for|from|and|or)\b|$)",
-        r"\bper\s+(.+?)(?=\s+(?:where|with|having|for|from|and|or)\b|$)",
-        r"\beach\s+(.+?)(?=\s+(?:where|with|having|for|from|and|or)\b|$)",
+        # "sales by customer in July 2025"
+        # "GST by product during August 2025"
+        # "profit by category for 2026"
+        r"\bby\s+(.+?)(?=\s+(?:in|during|on|for|from|between|where|with|having|and|or)\b|$)",
+
+        # "group by customer in July 2025"
+        r"\bgroup(?:ed)?\s+by\s+(.+?)(?=\s+(?:in|during|on|for|from|between|where|with|having|and|or)\b|$)",
+
+        # "per customer in July 2025"
+        r"\bper\s+(.+?)(?=\s+(?:in|during|on|for|from|between|where|with|having|and|or)\b|$)",
+
+        # "each customer in July 2025"
+        r"\beach\s+(.+?)(?=\s+(?:in|during|on|for|from|between|where|with|having|and|or)\b|$)",
     ]
 
     for pattern in direct_by_patterns:
@@ -4599,7 +5941,7 @@ def _extract_group_by(
                     inter_state_column,
                     dataset,
                     schema,
-                    rows,
+                    [],
                 )
 
                 if inter_state_match:
@@ -4619,7 +5961,7 @@ def _extract_group_by(
                     rate_column,
                     dataset,
                     schema,
-                    rows,
+                    [],
                 )
 
                 if rate_match:
@@ -4637,7 +5979,7 @@ def _extract_group_by(
             candidate,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
 
@@ -4653,7 +5995,7 @@ def _extract_group_by(
             candidate,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if resolved:
@@ -4691,7 +6033,7 @@ def _extract_group_by(
             cleaned_candidate,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if resolved:
@@ -4716,11 +6058,89 @@ def _extract_group_by(
     if wise_match:
         candidate = wise_match.group(1).strip()
 
+        # ----------------------------------------------------
+        # Remove query-intent and metric words from the
+        # beginning of "... wise" expressions.
+        #
+        # Example:
+        #   "show quantity product wise"
+        #       -> "product"
+        #
+        #   "show sales customer wise"
+        #       -> "customer"
+        #
+        #   "show quantity and sales product wise"
+        #       -> "product"
+        # ----------------------------------------------------
+
+        candidate = re.sub(
+            r"\b(?:show|give|list|display|return|fetch|"
+            r"provide|find|get|tell|me|the|all|"
+            r"total|sum|average|avg|mean|maximum|max|"
+            r"minimum|min|highest|lowest|top|bottom|"
+            r"count|number|of|and|"
+            r"sales?|revenue|billing|turnover|"
+            r"profit|discount|gst|cgst|sgst|igst|"
+            r"invoice|invoices|amount|value|"
+            r"quantity|qty)\b",
+            " ",
+            candidate,
+            flags=re.IGNORECASE,
+        )
+
+        candidate = re.sub(
+            r"\s+",
+            " ",
+            candidate,
+        ).strip()
+
+        if candidate:
+
+            resolved = _resolve_column(
+                candidate,
+                dataset,
+                schema,
+                    [],
+            )
+
+            if resolved:
+                return resolved
+
+        # Preserve the original fallback behavior.
+        original_candidate = wise_match.group(1).strip()
+
+        resolved = _resolve_column(
+            original_candidate,
+            dataset,
+            schema,
+                    [],
+        )
+
+        if resolved:
+            return resolved
+
+        # ----------------------------------------------------
+        # Fallback: try the original candidate.
+        # ----------------------------------------------------
+
+        resolved = _resolve_column(
+            wise_match.group(1).strip(),
+            dataset,
+            schema,
+                    [],
+        )
+
+        if resolved:
+            return resolved
+
+    if wise_match:
+        candidate = wise_match.group(1).strip()
+
         resolved = _resolve_column(
             candidate,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if resolved:
@@ -4751,7 +6171,7 @@ def _extract_group_by(
                 cleaned_candidate,
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
             if resolved:
@@ -4811,7 +6231,69 @@ def _extract_group_by(
                 candidate,
                 dataset,
                 schema,
-                rows,
+                    [],
+            )
+
+            if resolved:
+                return resolved
+
+    # --------------------------------------------------------
+    # FALLBACK: DATE COLUMN FOR YEAR / QUARTER GROUPING
+    #
+    # Detailed invoice datasets often contain InvoiceDate
+    # instead of separate Year / Quarter columns.
+    #
+    # Example:
+    #   year wise    -> InvoiceDate
+    #   quarter wise -> InvoiceDate
+    #
+    # The query executor can then derive the requested
+    # temporal period from the date column.
+    # --------------------------------------------------------
+
+    if re.search(
+        r"\b(?:yearly|year\s+wise|year-wise|annual)\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    ):
+        for candidate in (
+            "InvoiceDate",
+            "Invoice Date",
+            "Date",
+            "TransactionDate",
+            "Transaction Date",
+            "Bill Date",
+            "Billing Date",
+        ):
+            resolved = _resolve_column(
+                candidate,
+                dataset,
+                schema,
+                    [],
+            )
+
+            if resolved:
+                return resolved
+
+    if re.search(
+        r"\b(?:quarterly|quarter\s+wise|quarter-wise)\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    ):
+        for candidate in (
+            "InvoiceDate",
+            "Invoice Date",
+            "Date",
+            "TransactionDate",
+            "Transaction Date",
+            "Bill Date",
+            "Billing Date",
+        ):
+            resolved = _resolve_column(
+                candidate,
+                dataset,
+                schema,
+                    [],
             )
 
             if resolved:
@@ -4838,10 +6320,61 @@ def _extract_aggregate(
 
     question_norm = _normalize_text(question)
     
+    # ==========================================================
+    # EARLY INVOICE COUNT HANDLING
+    # ==========================================================
+
+    invoice_count_query = bool(
+        re.search(
+            r"\b(?:invoice\s+count|invoice\s+counts|"
+            r"count\s+(?:of\s+)?invoices?|"
+            r"number\s+of\s+invoices?|"
+            r"how\s+many\s+invoices?)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if invoice_count_query:
+        invoice_column = None
+
+        # Find the real InvoiceNo source column.
+        for source_column in _dataset_columns(
+            dataset,
+            schema,
+                    [],
+        ):
+            if not source_column:
+                continue
+
+            normalized_source = _normalize_text(
+                str(source_column)
+            )
+
+            if normalized_source in {
+                "invoiceno",
+                "invoice no",
+                "invoice number",
+            }:
+                invoice_column = str(source_column)
+                break
+
+        # Fallback to resolver.
+        if not invoice_column:
+            invoice_column = _resolve_column(
+                "InvoiceNo",
+                dataset,
+                schema,
+                    [],
+            )
+
+        if invoice_column:
+            return "count", invoice_column
+    
     columns = _dataset_columns(
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     # ==========================================================
@@ -4883,6 +6416,66 @@ def _extract_aggregate(
         question_norm,
     ):
         function = "count"
+
+    # ----------------------------------------------------------
+    # INVOICE COUNT -> ALWAYS COUNT THE INVOICE IDENTIFIER
+    #
+    # Examples:
+    #   Show invoice count
+    #   Show invoice count year wise
+    #   Count invoices month wise
+    #   Number of invoices by year
+    #
+    # InvoiceNo is an identifier, not a numeric measure.
+    # Therefore never allow numeric-column fallback such as
+    # GrossAmount to be selected for an invoice-count query.
+    # ----------------------------------------------------------
+
+    invoice_count_query = bool(
+        re.search(
+            r"\b(?:invoice\s+count|invoice\s+counts|"
+            r"count\s+(?:of\s+)?invoices?|"
+            r"number\s+of\s+invoices?|"
+            r"how\s+many\s+invoices?)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if invoice_count_query:
+        function = "count"
+
+        invoice_column = None
+
+        # First: resolve from actual dataset/schema columns.
+        for source_column in columns:
+            if not source_column:
+                continue
+
+            normalized_source = _normalize_text(
+                str(source_column)
+            )
+
+            if normalized_source in {
+                "invoiceno",
+                "invoice no",
+                "invoice number",
+            }:
+                invoice_column = str(source_column)
+                break
+
+        # Fallback: resolve through the generic column resolver.
+        if not invoice_column:
+            invoice_column = _resolve_column(
+                "InvoiceNo",
+                dataset,
+                schema,
+                    [],
+            )
+
+        if invoice_column:
+            aggregate_column = invoice_column
+
     # ==========================================================
     # DISTINCT / UNIQUE VALUE COLUMN DETECTION
     # ==========================================================
@@ -4966,7 +6559,7 @@ def _extract_aggregate(
                 distinct_candidate,
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         # ----------------------------------------------------------
@@ -5049,11 +6642,11 @@ def _extract_aggregate(
     elif re.search(
         r"\btotal\s+(?:invoices?|customers?|products?|"
         r"salespersons?|employees?|transactions?|records?|"
-        r"rows?|entries?)\b",
+        r"rows?|entries?)"
+        r"(?=\s*$|\s+(?:by|per|wise|where|in|for)\b)",
         question_norm,
     ):
         function = "count"
-
     elif re.search(
         r"\b(?:average|avg|mean)\b",
         question_norm,
@@ -5143,7 +6736,7 @@ def _extract_aggregate(
     dataset_columns = _dataset_columns(
         dataset,
         schema,
-        rows,
+                    [],
     )
     
 
@@ -5276,7 +6869,7 @@ def _extract_aggregate(
     # must continue using the normal scalar aggregate path.
     grouped_ranking_request = bool(
         re.search(
-            r"\b(?:highest|maximum|most|lowest|minimum|least|bottom)\b",
+            r"\b(?:highest|maximum|top|most|lowest|minimum|least|bottom)\b",
             question_norm,
             flags=re.IGNORECASE,
         )
@@ -5288,9 +6881,18 @@ def _extract_aggregate(
         )
     )
 
+    grouped_by_request = bool(
+        re.search(
+            r"\b(?:by|group(?:ed)?\s+by|per|each)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
     explicit_aggregate_column_match = bool(
         function
         and not grouped_ranking_request
+        and not grouped_by_request
         and re.search(
             r"\b(?:total|sum|average|avg|mean|max|maximum|min|minimum)\b",
             question_norm,
@@ -5381,20 +6983,20 @@ def _extract_aggregate(
             ]
         else:
             ranking_columns = [
+                "GrossAmount",
+                "Gross Amount",
+                "Sales Amount",
+                "SalesAmount",
+                "Revenue",
+                "Turnover",
+                "Amount",
+                "Taxable Value",
+                "TaxableAmount",
                 "Invoice Value",
                 "InvoiceTotal",
                 "Invoice Total",
                 "Total Amount",
                 "TotalAmount",
-                "Gross Amount",
-                "GrossAmount",
-                "Sales Amount",
-                "SalesAmount",
-                "Amount",
-                "Revenue",
-                "Turnover",
-                "Taxable Value",
-                "TaxableAmount",
             ]
 
         for preferred in ranking_columns:
@@ -5449,25 +7051,131 @@ def _extract_aggregate(
                 candidate,
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
             if resolved_trend_metric:
-                # Only use the default trend metric when the
-                # user did not explicitly request another
-                # numeric metric.
-                explicit_metric_requested = any(
-                    re.search(
-                        rf"\b{re.escape(_normalize_text(column))}\b",
+                # Detect whether the user explicitly requested a metric.
+                #
+                # This must support business aliases as well as exact
+                # uploaded column names.
+                #
+                # Examples:
+                #   discount       -> DiscountAmt
+                #   profit         -> Profit
+                #   quantity       -> Qty / Qty Sold / Quantity
+                #   gst             -> GST / Total GST
+                #   taxable amount -> Taxable Value
+                #   invoice value  -> Invoice Value
+
+                explicit_metric_aliases = {
+                    "sales": (
+                        "Invoice Value",
+                        "Invoice Total",
+                        "Total Amount",
+                        "Sales Amount",
+                        "Amount",
+                    ),
+                    "revenue": (
+                        "Invoice Value",
+                        "Invoice Total",
+                        "Total Amount",
+                        "Revenue",
+                    ),
+                    "discount": (
+                        "DiscountAmt",
+                        "Discount Amt",
+                        "Discount Amount",
+                        "DiscountAmount",
+                    ),
+                    "profit": (
+                        "Profit",
+                    ),
+                    "quantity": (
+                        "Qty Sold",
+                        "Qty",
+                        "Quantity",
+                    ),
+                    "qty": (
+                        "Qty Sold",
+                        "Qty",
+                        "Quantity",
+                    ),
+                    "gst": (
+                        "GST",
+                        "Total GST",
+                        "TotalGST",
+                    ),
+                    "cgst": (
+                        "CGST",
+                    ),
+                    "sgst": (
+                        "SGST",
+                    ),
+                    "igst": (
+                        "IGST",
+                    ),
+                    "taxable amount": (
+                        "Taxable Value",
+                        "TaxableAmount",
+                    ),
+                    "taxable value": (
+                        "Taxable Value",
+                        "TaxableAmount",
+                    ),
+                }
+
+                explicit_metric_requested = False
+
+                # 1. Exact uploaded-column match.
+                for column in numeric_columns:
+                    column_norm = _normalize_text(column)
+
+                    if not column_norm:
+                        continue
+
+                    if re.search(
+                        rf"\b{re.escape(column_norm)}\b",
                         question_norm,
-                    )
-                    for column in numeric_columns
-                    if _normalize_text(column)
-                    and _normalize_text(column)
-                    not in {
-                        "invoices",
-                    }
-                )
+                        flags=re.IGNORECASE,
+                    ):
+                        explicit_metric_requested = True
+                        break
+
+                # 2. Business-language alias match.
+                if not explicit_metric_requested:
+
+                    for alias, possible_columns in explicit_metric_aliases.items():
+
+                        if not re.search(
+                            rf"\b{re.escape(alias)}\b",
+                            question_norm,
+                            flags=re.IGNORECASE,
+                        ):
+                            continue
+
+                        for possible_column in possible_columns:
+
+                            possible_norm = _normalize_text(
+                                possible_column
+                            )
+
+                            if not possible_norm:
+                                continue
+
+                            for column in numeric_columns:
+
+                                column_norm = _normalize_text(column)
+
+                                if column_norm == possible_norm:
+                                    explicit_metric_requested = True
+                                    break
+
+                            if explicit_metric_requested:
+                                break
+
+                        if explicit_metric_requested:
+                            break
 
                 if not explicit_metric_requested:
                     return function or "sum", resolved_trend_metric
@@ -5599,7 +7307,7 @@ def _extract_aggregate(
             question,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         # ------------------------------------------------------
@@ -5815,17 +7523,18 @@ def _extract_aggregate(
             ):
 
                 preferred_sales_columns = [
-                    "Invoice Value",
-                    "InvoiceTotal",
-                    "Total Amount",
-                    "TotalAmount",
                     "Gross Amount",
                     "GrossAmount",
                     "Sales Amount",
                     "SalesAmount",
-                    "Amount",
                     "Revenue",
                     "Turnover",
+                    "Amount",
+                    "Invoice Value",
+                    "InvoiceTotal",
+                    "Invoice Total",
+                    "Total Amount",
+                    "TotalAmount",
                     "Taxable Value",
                     "TaxableAmount",
                 ]
@@ -6085,6 +7794,28 @@ def _extract_aggregate(
 
             column_text = _normalize_text(column)
 
+
+            # HSN_Code is the grouping dimension in
+            # queries such as 'total sales by HSN code'.
+            # Do not sum HSN codes themselves; let the
+            # generic sales metric fallback select GrossAmount.
+            if (
+                re.search(
+                    r"\b(?:sale|sales|revenue|billing|turnover)\b",
+                    question_norm,
+                    flags=re.IGNORECASE,
+                )
+                and re.search(
+                    r"\b(?:by|group(?:ed)?\s+by|per|each)\b",
+                    question_norm,
+                    flags=re.IGNORECASE,
+                )
+                and _normalize_text(column_text) in {
+                    "hsncode",
+                    "hsn code",
+                }
+            ):
+                continue
             if not column_text:
                 continue
 
@@ -6115,8 +7846,19 @@ def _extract_aggregate(
         )
     )
 
-    if has_sales_term and numeric_columns:
+    explicit_invoice_value_query = bool(
+        re.search(
+            r"\binvoice\s+(?:value|amount|total)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
 
+    if (
+        has_sales_term
+        and numeric_columns
+        and not explicit_invoice_value_query
+    ):
         if not function:
             function = "sum"
 
@@ -6143,11 +7885,6 @@ def _extract_aggregate(
         # ------------------------------------------------------
 
         preferred_sales_columns = [
-            "Invoice Value",
-            "InvoiceTotal",
-            "Invoice Total",
-            "Total Amount",
-            "TotalAmount",
             "Gross Amount",
             "GrossAmount",
             "Sales Amount",
@@ -6155,6 +7892,11 @@ def _extract_aggregate(
             "Revenue",
             "Turnover",
             "Amount",
+            "Invoice Value",
+            "InvoiceTotal",
+            "Invoice Total",
+            "Total Amount",
+            "TotalAmount",
             "Taxable Value",
             "TaxableAmount",
         ]
@@ -6218,14 +7960,23 @@ def _extract_aggregate(
     # ==========================================================
 
     if (
-        function
-        and numeric_columns
+        numeric_columns
         and re.search(
             r"\binvoice\s+(?:value|amount|total)\b",
             question_norm,
+            flags=re.IGNORECASE,
         )
     ):
-
+        # Explicit invoice value/amount/total means monetary
+        # invoice value. "total" must aggregate with SUM,
+        # not COUNT.
+        if re.search(
+            r"\btotal\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        ):
+            function = "sum"
+        
         invoice_value_candidates = [
             "Invoice Value",
             "InvoiceTotal",
@@ -6322,7 +8073,7 @@ def _extract_aggregate(
                 candidate,
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
             if resolved:
@@ -6539,7 +8290,7 @@ def _extract_aggregate(
                 candidate,
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
             if resolved:
@@ -6555,34 +8306,13 @@ def _extract_aggregate(
                 return "count", resolved
 
     # ==========================================================
-    # 10. GENERIC NUMERIC FALLBACK
     # ==========================================================
-
-    if function and function != "count":
-
-        if len(numeric_columns) == 1:
-            return function, numeric_columns[0]
-
-        for column in numeric_columns:
-
-            normalized = _normalize_text(
-                column
-            )
-
-            if any(
-                word in normalized
-                for word in (
-                    "amount",
-                    "total",
-                    "salary",
-                    "price",
-                    "value",
-                    "revenue",
-                )
-            ):
-                return function, column
-
+    # 10. NO UNSAFE GENERIC NUMERIC FALLBACK
     # ==========================================================
+    # Never select an arbitrary numeric column when the requested
+    # metric could not be semantically resolved.
+    # Unsupported metric -> no metric -> Data not available.
+
     # 11. NOTHING FOUND
     # ==========================================================
 
@@ -6660,7 +8390,7 @@ def _extract_aggregate(
             for column in _dataset_columns(
                 dataset,
                 schema,
-                rows,
+                    [],
             ):
                 values = [
                     _to_number(row.get(column))
@@ -6766,7 +8496,7 @@ def _extract_aggregate(
             candidate,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if resolved:
@@ -6803,7 +8533,7 @@ def _extract_aggregate(
             for column in _dataset_columns(
                 dataset,
                 schema,
-                rows,
+                    [],
             ):
                 values = [
                     _to_number(row.get(column))
@@ -6844,6 +8574,469 @@ def _extract_aggregate(
                 return function, column
 
     return function, None
+
+def _extract_implicit_group_metrics(
+    question: str,
+    dataset: Dict[str, Any],
+    schema: List[Dict[str, Any]],
+    rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Detect multiple business metrics used in grouped/chart-style
+    questions where the aggregation word is omitted.
+
+    Examples:
+        Show sales and profit quarter wise
+        Show quantity and sales product wise
+        Show invoice count and discount year wise
+
+    These are interpreted as SUM by default, except invoice count,
+    which is interpreted as COUNT.
+    """
+
+    question_norm = _normalize_text(question)
+
+    # This parser is only for grouped/chart-style questions.
+    if not re.search(
+        r"\b(?:wise|by|per|each|month|monthly|quarter|quarterly|"
+        r"year|yearly|day|daily)\b",
+        question_norm,
+    ):
+        return []
+
+    metric_patterns = [
+        (
+            "invoice_count",
+            "count",
+            (
+                "invoice count",
+                "invoice counts",
+                "number of invoices",
+                "count of invoices",
+                "count invoices",
+                "invoices",
+            ),
+        ),
+        (
+            "sales",
+            "sum",
+            (
+                "sales",
+                "sale",
+                "revenue",
+                "billing",
+                "turnover",
+            ),
+        ),
+        (
+            "profit",
+            "sum",
+            (
+                "profit",
+                "profits",
+            ),
+        ),
+        (
+            "quantity",
+            "sum",
+            (
+                "quantity",
+                "qty",
+            ),
+        ),
+        (
+            "discount",
+            "sum",
+            (
+                "discount",
+                "discount amount",
+                "discount amt",
+            ),
+        ),
+        (
+            "gst",
+            "sum",
+            (
+                "gst",
+                "total gst",
+            ),
+        ),
+        (
+            "cgst",
+            "sum",
+            (
+                "cgst",
+            ),
+        ),
+        (
+            "sgst",
+            "sum",
+            (
+                "sgst",
+            ),
+        ),
+        (
+            "igst",
+            "sum",
+            (
+                "igst",
+            ),
+        ),
+        (
+            "taxable",
+            "sum",
+            (
+                "taxable amount",
+                "taxable",
+            ),
+        ),
+        (
+            "cost",
+            "sum",
+            (
+                "cost",
+            ),
+        ),
+    ]
+
+    detected = []
+
+    for metric_name, function, aliases in metric_patterns:
+
+        # Avoid matching "discount" inside another word.
+        matched_alias = None
+
+        for alias in aliases:
+            if re.search(
+                rf"\b{re.escape(alias)}\b",
+                question_norm,
+            ):
+                matched_alias = alias
+                break
+
+        if not matched_alias:
+            continue
+
+        column = None
+
+        if metric_name == "invoice_count":
+            # Prefer InvoiceNo because it represents one invoice.
+            for candidate in (
+                "InvoiceNo",
+                "Invoice No",
+                "Invoice Number",
+                "InvoiceNumber",
+            ):
+                column = _resolve_column(
+                    candidate,
+                    dataset,
+                    schema,
+                    [],
+                )
+                if column:
+                    break
+
+            # Fallback to any available column if InvoiceNo is absent.
+            if not column:
+                columns = _dataset_columns(
+                    dataset,
+                    schema,
+                    [],
+                )
+                if columns:
+                    column = columns[0]
+
+        elif metric_name == "sales":
+            column = _resolve_column(
+                "sales",
+                dataset,
+                schema,
+                    [],
+            )
+
+            if not column:
+                column = _resolve_column(
+                    "amount",
+                    dataset,
+                    schema,
+                    [],
+                )
+
+            if not column:
+                column = _resolve_column(
+                    "GrossAmount",
+                    dataset,
+                    schema,
+                    [],
+                )
+
+        elif metric_name == "profit":
+            column = _resolve_column(
+                "profit",
+                dataset,
+                schema,
+                    [],
+            )
+
+        elif metric_name == "quantity":
+            column = _resolve_column(
+                "quantity",
+                dataset,
+                schema,
+                    [],
+            )
+
+            if not column:
+                column = _resolve_column(
+                    "qty",
+                    dataset,
+                    schema,
+                    [],
+                )
+
+        elif metric_name == "discount":
+            column = _resolve_column(
+                "discount amount",
+                dataset,
+                schema,
+                    [],
+            )
+
+            if not column:
+                column = _resolve_column(
+                    "discount",
+                    dataset,
+                    schema,
+                    [],
+                )
+
+        elif metric_name == "gst":
+            column = _resolve_column(
+                "total gst",
+                dataset,
+                schema,
+                    [],
+            )
+
+            if not column:
+                column = _resolve_column(
+                    "gst",
+                    dataset,
+                    schema,
+                    [],
+                )
+
+        else:
+            column = _resolve_column(
+                metric_name,
+                dataset,
+                schema,
+                    [],
+            )
+
+        if not column:
+            continue
+
+        detected.append(
+            {
+                "metric": metric_name,
+                "function": function,
+                "column": column,
+            }
+        )
+
+    # This parser should only activate for genuine multi-metric
+    # questions. Single-metric questions continue through the
+    # existing _extract_aggregate() path.
+    if len(detected) < 2:
+        return []
+
+    # Remove duplicate columns/metrics.
+    unique = []
+    seen = set()
+
+    for item in detected:
+        key = (
+            item["metric"],
+            item["function"],
+            item["column"],
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        unique.append(item)
+
+    return unique
+def _group_implicit_metrics(
+    rows: List[Dict[str, Any]],
+    group_column: str,
+    metrics: List[Dict[str, Any]],
+    time_period: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Group rows once and calculate multiple metrics for every group.
+
+    Supports:
+        sum
+        count
+    """
+
+    if not rows or not group_column or not metrics:
+        return []
+
+    grouped = {}
+
+    for row in rows:
+
+        raw_group = row.get(group_column)
+
+        if raw_group in (None, ""):
+            continue
+
+        group_value = raw_group
+
+        # Temporal grouping.
+        if time_period:
+            parsed = _parse_date_value(raw_group)
+
+            if parsed is not None:
+
+                if time_period == "day":
+                    group_value = parsed.strftime("%Y-%m-%d")
+
+                elif time_period == "month":
+                    group_value = parsed.strftime("%Y-%m")
+
+                elif time_period == "year":
+                    group_value = parsed.strftime("%Y")
+
+                elif time_period == "quarter":
+                    quarter = ((parsed.month - 1) // 3) + 1
+                    group_value = (
+                        f"{parsed.year}-Q{quarter}"
+                    )
+
+        key = str(group_value)
+
+        if key not in grouped:
+            grouped[key] = {
+                group_column: group_value,
+                "_rows": [],
+            }
+
+        grouped[key]["_rows"].append(row)
+
+    output = []
+
+    for group_value, group_data in grouped.items():
+
+        group_rows = group_data["_rows"]
+
+        result_row = {
+            group_column: group_data[group_column]
+        }
+
+        for metric in metrics:
+
+            metric_name = metric["metric"]
+            function = metric["function"]
+            column = metric["column"]
+
+            if function == "count":
+
+                values = [
+                    row.get(column)
+                    for row in group_rows
+                    if row.get(column) not in (None, "")
+                ]
+
+                value = len(values)
+
+            else:
+
+                values = []
+
+                for row in group_rows:
+                    number = _to_number(
+                        row.get(column)
+                    )
+
+                    if number is not None:
+                        values.append(number)
+
+                if function == "sum":
+                    value = sum(values)
+
+                elif function == "average":
+                    value = (
+                        sum(values) / len(values)
+                        if values
+                        else 0
+                    )
+
+                elif function == "max":
+                    value = max(values) if values else 0
+
+                elif function == "min":
+                    value = min(values) if values else 0
+
+                else:
+                    value = sum(values)
+
+            # Use the same human-friendly names expected
+            # by the chart service.
+            if metric_name == "sales":
+                output_column = "Total Sales"
+
+            elif metric_name == "profit":
+                output_column = "Total Profit"
+
+            elif metric_name == "quantity":
+                output_column = "Total Qty"
+
+            elif metric_name == "invoice_count":
+                output_column = "Invoice Count"
+
+            elif metric_name == "discount":
+                output_column = "Total Discount"
+
+            elif metric_name == "gst":
+                output_column = "Total GST"
+
+            elif metric_name == "cgst":
+                output_column = "Total CGST"
+
+            elif metric_name == "sgst":
+                output_column = "Total SGST"
+
+            elif metric_name == "igst":
+                output_column = "Total IGST"
+
+            elif metric_name == "taxable":
+                output_column = "Total Taxable Amount"
+
+            elif metric_name == "cost":
+                output_column = "Total Cost"
+
+            else:
+                output_column = f"Total {column}"
+
+            result_row[output_column] = value
+
+        output.append(result_row)
+
+    # Keep temporal results chronological.
+    if time_period:
+        output.sort(
+            key=lambda row: str(
+                row.get(group_column, "")
+            )
+        )
+
+    return output
+
 def _extract_multi_aggregate(
     question: str,
     dataset: Dict[str, Any],
@@ -6851,27 +9044,22 @@ def _extract_multi_aggregate(
     rows: List[Dict[str, Any]],
 ) -> List[Dict[str, str]]:
     """
-    Detect multiple explicit aggregate metrics in one question.
+    Detect multiple aggregate metrics in one question.
 
-    Example:
-        Show total sales, total GST and total discount
-        for ABC Traders in September 2026
+    Supports:
+        total sales and total profit
+        average sales and average profit
+        maximum sales and minimum profit
+        average GST and total discount
 
-    Returns:
-        [
-            {"function": "sum", "column": "Total Amount"},
-            {"function": "sum", "column": "GST"},
-            {"function": "sum", "column": "Discount"},
-        ]
-
-    This is intentionally separate from _extract_aggregate(),
-    which continues to support the existing single-metric flow.
+    Business terms such as sales/profit/GST are resolved to
+    the actual source columns.
     """
 
     question_norm = _normalize_text(question)
 
     if not re.search(
-        r"\b(?:total|sum|average|avg|mean|maximum|max|minimum|min)\b",
+        r"\b(?:total|sum|average|avg|mean|maximum|max|highest|minimum|min|lowest)\b",
         question_norm,
     ):
         return []
@@ -6879,7 +9067,7 @@ def _extract_multi_aggregate(
     dataset_columns = _dataset_columns(
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     if not dataset_columns:
@@ -6906,117 +9094,110 @@ def _extract_multi_aggregate(
         ):
             numeric_columns.append(source)
 
-    # Also inspect actual row values so unmapped numeric
-    # columns such as GST and Discount are supported.
+    # Also inspect actual row values so numeric columns that are
+    # not correctly mapped in the schema can still participate.
     for column in dataset_columns:
 
         if column in numeric_columns:
             continue
 
-        values = []
-
-        for row in rows[:100]:
-            value = _to_number(
-                row.get(column)
-            )
-
-            if value is not None:
-                values.append(value)
-
-        if not values:
-            continue
-
-        non_empty_count = sum(
-            1
+        values = [
+            row.get(column)
             for row in rows[:100]
-            if row.get(column) not in (None, "")
-        )
+            if isinstance(row, dict)
+            and row.get(column) not in (None, "")
+        ]
 
-        if non_empty_count == 0:
-            continue
+        numeric_count = 0
 
-        numeric_ratio = (
-            len(values) / non_empty_count
-        )
+        for value in values:
+            try:
+                float(
+                    str(value)
+                    .replace(",", "")
+                    .replace("?", "")
+                    .strip()
+                )
+                numeric_count += 1
+            except (TypeError, ValueError):
+                continue
 
-        if numeric_ratio >= 0.5:
+        if values and numeric_count >= max(
+            1,
+            int(len(values) * 0.6),
+        ):
             numeric_columns.append(column)
-
-    numeric_columns = list(
-        dict.fromkeys(numeric_columns)
-    )
-
-    if not numeric_columns:
-        return []
 
     results = []
 
     # ----------------------------------------------------------
-    # Resolve explicit metric names.
+    # Helper: add a resolved aggregate.
     # ----------------------------------------------------------
 
-    for column in numeric_columns:
+    def add_result(function: str, column: Optional[str]) -> None:
 
-        column_norm = _normalize_text(
-            column
-        )
+        if not column:
+            return
+
+        if column not in numeric_columns:
+            return
+
+        item = {
+            "function": function,
+            "column": column,
+        }
+
+        if item not in results:
+            results.append(item)
+
+    # ----------------------------------------------------------
+    # Helper: convert aggregation word to execution function.
+    # ----------------------------------------------------------
+
+    def resolve_function(word: str) -> str:
+
+        word = _normalize_text(word)
+
+        if word in {
+            "average",
+            "avg",
+            "mean",
+        }:
+            return "average"
+
+        if word in {
+            "maximum",
+            "max",
+            "highest",
+        }:
+            return "max"
+
+        if word in {
+            "minimum",
+            "min",
+            "lowest",
+        }:
+            return "min"
+
+        return "sum"
+
+    # ----------------------------------------------------------
+    # Explicit source-column aggregates.
+    #
+    # Example:
+    #   average Profit
+    #   total GST
+    #   maximum DiscountAmt
+    # ----------------------------------------------------------
+
+    for column in dataset_columns:
+
+        column_norm = _normalize_text(column)
 
         if not column_norm:
             continue
 
-        matched = False
-
-        # Exact source-column match.
-        if re.search(
-            rf"\b{re.escape(column_norm)}\b",
-            question_norm,
-        ):
-            matched = True
-
-        # Token-based match for multi-word columns.
-        if not matched:
-            column_tokens = set(
-                _tokens(column_norm)
-            )
-
-            question_tokens = set(
-                _tokens(question_norm)
-            )
-
-            if (
-                column_tokens
-                and column_tokens.issubset(
-                    question_tokens
-                )
-            ):
-                matched = True
-
-        if not matched:
-            continue
-
-                # Determine the requested aggregation.
-        #
-        # Important:
-        # We must detect the aggregation belonging to THIS
-        # metric, not any aggregation word appearing nearby.
-        #
-        # Example:
-        #   average GST and total discount
-        #
-        # GST      -> average
-        # Discount -> sum
-        # ------------------------------------------------------
-
-        function = "sum"
-
-        column_pattern = re.escape(
-            column_norm
-        )
-
-        # ------------------------------------------------------
-        # Look for an aggregation phrase immediately associated
-        # with this column.
-        # ------------------------------------------------------
+        column_pattern = re.escape(column_norm)
 
         aggregation_matches = re.findall(
             rf"\b("
@@ -7032,64 +9213,41 @@ def _extract_multi_aggregate(
             question_norm,
         )
 
-        if not aggregation_matches:
-            continue
-
         for aggregation_word in aggregation_matches:
-
-            function = "sum"
-
-            if aggregation_word in {
-                "average",
-                "avg",
-                "mean",
-            }:
-                function = "average"
-
-            elif aggregation_word in {
-                "maximum",
-                "max",
-                "highest",
-            }:
-                function = "max"
-
-            elif aggregation_word in {
-                "minimum",
-                "min",
-                "lowest",
-            }:
-                function = "min"
-
-            elif aggregation_word in {
-                "sum",
-                "total",
-            }:
-                function = "sum"
-
-            results.append(
-                {
-                    "function": function,
-                    "column": column,
-                }
+            add_result(
+                resolve_function(aggregation_word),
+                column,
             )
 
     # ----------------------------------------------------------
-    # Resolve "sales" as the sales/amount column.
+    # Business-domain "sales".
     #
-    # "sales" is often a business-domain word rather than
-    # a literal source-column name.
+    # Generic sales -> actual sales/revenue column.
+    #
+    # Important:
+    #   average sales -> average sales column
+    #   maximum sales -> max sales column
+    #   minimum sales -> min sales column
+    #   total sales   -> sum sales column
     # ----------------------------------------------------------
 
-    if re.search(
-        r"\b(?:total|sum)\s+sales?\b",
+    sales_matches = re.findall(
+        r"\b("
+        r"average|avg|mean|"
+        r"maximum|max|highest|"
+        r"minimum|min|lowest|"
+        r"sum|total"
+        r")\s+(?:of\s+)?sales?\b",
         question_norm,
-    ):
+    )
+
+    if sales_matches:
 
         sales_column = _resolve_column(
             "sales",
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         if not sales_column:
@@ -7097,26 +9255,144 @@ def _extract_multi_aggregate(
                 "amount",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
-        if (
-            sales_column
-            and sales_column in numeric_columns
-            and not any(
-                item["column"] == sales_column
-                for item in results
-            )
-        ):
-            results.insert(
-                0,
-                {
-                    "function": "sum",
-                    "column": sales_column,
-                },
+        for aggregation_word in sales_matches:
+            add_result(
+                resolve_function(aggregation_word),
+                sales_column,
             )
 
-    # Preserve source-column order and remove duplicates.
+    # ----------------------------------------------------------
+    # Business-domain "profit".
+    # ----------------------------------------------------------
+
+    profit_matches = re.findall(
+        r"\b("
+        r"average|avg|mean|"
+        r"maximum|max|highest|"
+        r"minimum|min|lowest|"
+        r"sum|total"
+        r")\s+(?:of\s+)?profit\b",
+        question_norm,
+    )
+
+    if profit_matches:
+
+        profit_column = _resolve_column(
+            "profit",
+            dataset,
+            schema,
+                    [],
+        )
+
+        for aggregation_word in profit_matches:
+            add_result(
+                resolve_function(aggregation_word),
+                profit_column,
+            )
+
+    # ----------------------------------------------------------
+    # Business-domain quantity.
+    # ----------------------------------------------------------
+
+    quantity_matches = re.findall(
+        r"\b("
+        r"average|avg|mean|"
+        r"maximum|max|highest|"
+        r"minimum|min|lowest|"
+        r"sum|total"
+        r")\s+(?:of\s+)?"
+        r"(?:quantity|qty)\b",
+        question_norm,
+    )
+
+    if quantity_matches:
+
+        quantity_column = _resolve_column(
+            "quantity",
+            dataset,
+            schema,
+                    [],
+        )
+
+        for aggregation_word in quantity_matches:
+            add_result(
+                resolve_function(aggregation_word),
+                quantity_column,
+            )
+
+    # ----------------------------------------------------------
+    # Business-domain GST.
+    # ----------------------------------------------------------
+
+    gst_matches = re.findall(
+        r"\b("
+        r"average|avg|mean|"
+        r"maximum|max|highest|"
+        r"minimum|min|lowest|"
+        r"sum|total"
+        r")\s+(?:of\s+)?gst\b",
+        question_norm,
+    )
+
+    if gst_matches:
+
+        gst_column = _resolve_column(
+            "gst",
+            dataset,
+            schema,
+                    [],
+        )
+
+        for aggregation_word in gst_matches:
+            add_result(
+                resolve_function(aggregation_word),
+                gst_column,
+            )
+
+    # ----------------------------------------------------------
+    # Business-domain discount.
+    # ----------------------------------------------------------
+
+    discount_matches = re.findall(
+        r"\b("
+        r"average|avg|mean|"
+        r"maximum|max|highest|"
+        r"minimum|min|lowest|"
+        r"sum|total"
+        r")\s+(?:of\s+)?discount\b",
+        question_norm,
+    )
+
+    if discount_matches:
+
+        discount_column = _resolve_column(
+            "discount",
+            dataset,
+            schema,
+                    [],
+        )
+
+        if not discount_column:
+            discount_column = _resolve_column(
+                "discount amount",
+                dataset,
+                schema,
+                    [],
+            )
+
+        for aggregation_word in discount_matches:
+            add_result(
+                resolve_function(aggregation_word),
+                discount_column,
+            )
+
+    # ----------------------------------------------------------
+    # Preserve source order while removing duplicates.
+    # ----------------------------------------------------------
+
     unique_results = []
     seen = set()
 
@@ -7133,11 +9409,528 @@ def _extract_multi_aggregate(
         seen.add(key)
         unique_results.append(item)
 
-    # Multi-aggregate means at least two metrics.
+    # This function is specifically for multiple metrics.
     if len(unique_results) < 2:
         return []
 
     return unique_results
+
+
+# ============================================================
+# IMPLICIT GROUPED MULTI-METRIC AGGREGATION
+# ============================================================
+
+def _extract_implicit_group_metrics(
+    question: str,
+    dataset: Dict[str, Any],
+    schema: List[Dict[str, Any]],
+    rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Detect multiple metrics in natural-language grouped/chart queries.
+
+    Examples:
+        Show sales and profit quarter wise
+        Show quantity and sales product wise
+        Show invoice count and discount year wise
+        Show GST and sales month wise
+
+    This is intentionally separate from _extract_multi_aggregate()
+    because those queries require explicit aggregation words such
+    as "total", "sum", "average", etc.
+    """
+
+    question_norm = _normalize_text(question)
+
+    # This helper is only for grouped/chart-style questions.
+    if not re.search(
+        r"\b(?:wise|by|per|each|month|quarter|year|day)\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    ):
+        return []
+
+    metric_patterns = [
+        (
+            "invoice_count",
+            r"\b(?:invoice\s+count|invoice\s+counts|"
+            r"number\s+of\s+invoices|count\s+of\s+invoices|"
+            r"invoice\s+number\s+count)\b",
+            "count",
+            None,
+        ),
+        (
+            "sales",
+            r"\b(?:sales|sale|revenue|turnover|billing)\b",
+            "sum",
+            "sales",
+        ),
+        (
+            "profit",
+            r"\bprofit\b",
+            "sum",
+            "profit",
+        ),
+        (
+            "quantity",
+            r"\b(?:quantity|qty)\b",
+            "sum",
+            "quantity",
+        ),
+        (
+            "discount",
+            r"\bdiscount\b",
+            "sum",
+            "discount",
+        ),
+        (
+            "gst",
+            r"\bgst\b",
+            "sum",
+            "gst",
+        ),
+        (
+            "cgst",
+            r"\bcgst\b",
+            "sum",
+            "cgst",
+        ),
+        (
+            "sgst",
+            r"\bsgst\b",
+            "sum",
+            "sgst",
+        ),
+        (
+            "igst",
+            r"\bigst\b",
+            "sum",
+            "igst",
+        ),
+        (
+            "taxable",
+            r"\btaxable(?:\s+amount)?\b",
+            "sum",
+            "taxable",
+        ),
+        (
+            "cost",
+            r"\bcost\b",
+            "sum",
+            "cost",
+        ),
+    ]
+
+    detected = []
+
+    for metric_name, pattern, function, resolve_name in metric_patterns:
+
+        if not re.search(
+            pattern,
+            question_norm,
+            flags=re.IGNORECASE,
+        ):
+            continue
+
+        # Resolve the actual source column.
+        if function == "count":
+            resolved_column = None
+
+            # Prefer invoice-number columns when counting invoices.
+            for candidate in (
+                "InvoiceNo",
+                "Invoice No",
+                "Invoice Number",
+                "invoice number",
+                "invoice no",
+            ):
+                resolved_column = _resolve_column(
+                    candidate,
+                    dataset,
+                    schema,
+                    [],
+                )
+
+                if resolved_column:
+                    break
+
+        else:
+            resolved_column = _resolve_column(
+                resolve_name,
+                dataset,
+                schema,
+                    [],
+            )
+
+            # ------------------------------------------------
+            # Metric-specific fallbacks for dynamic business
+            # datasets.
+            #
+            # Example:
+            #   sales    -> GrossAmount / InvoiceTotal
+            #   quantity -> Qty
+            #   discount -> DiscountAmt
+            # ------------------------------------------------
+
+            if not resolved_column and metric_name == "sales":
+                for candidate in (
+                    "GrossAmount",
+                    "Gross Amount",
+                    "InvoiceTotal",
+                    "Invoice Total",
+                    "Total Amount",
+                    "TotalAmount",
+                    "Sales Amount",
+                    "SalesAmount",
+                    "Amount",
+                    "Revenue",
+                    "Turnover",
+                ):
+                    resolved_column = _resolve_column(
+                        candidate,
+                        dataset,
+                        schema,
+                    [],
+                    )
+
+                    if resolved_column:
+                        break
+
+            elif not resolved_column and metric_name == "quantity":
+                for candidate in (
+                    "Qty",
+                    "Quantity",
+                ):
+                    resolved_column = _resolve_column(
+                        candidate,
+                        dataset,
+                        schema,
+                    [],
+                    )
+
+                    if resolved_column:
+                        break
+
+            elif not resolved_column and metric_name == "discount":
+                for candidate in (
+                    "DiscountAmt",
+                    "Discount Amount",
+                    "Discount",
+                ):
+                    resolved_column = _resolve_column(
+                        candidate,
+                        dataset,
+                        schema,
+                    [],
+                    )
+
+                    if resolved_column:
+                        break
+
+            elif not resolved_column and metric_name == "profit":
+                for candidate in (
+                    "Profit",
+                    "Total Profit",
+                    "Profit Amount",
+                ):
+                    resolved_column = _resolve_column(
+                        candidate,
+                        dataset,
+                        schema,
+                    [],
+                    )
+
+                    if resolved_column:
+                        break
+
+            elif not resolved_column and metric_name == "gst":
+                for candidate in (
+                    "TotalGST",
+                    "Total GST",
+                    "GST",
+                ):
+                    resolved_column = _resolve_column(
+                        candidate,
+                        dataset,
+                        schema,
+                    [],
+                    )
+
+                    if resolved_column:
+                        break
+
+        if not resolved_column and function != "count":
+            continue
+
+        detected.append(
+            {
+                "metric": metric_name,
+                "function": function,
+                "column": resolved_column,
+            }
+        )
+
+    # Remove duplicates while preserving order.
+    unique = []
+    seen = set()
+
+    for item in detected:
+        key = (
+            item["metric"],
+            item["function"],
+            item["column"],
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        unique.append(item)
+
+    # We only want this helper to activate for 2+ metrics.
+    if len(unique) < 2:
+        return []
+
+    return unique
+
+
+def _group_multi_metrics(
+    rows: List[Dict[str, Any]],
+    group_column: str,
+    metrics: List[Dict[str, Any]],
+    time_period: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Calculate multiple aggregates over the same groups.
+
+    For normal metrics, reuse _group_aggregate().
+
+    For metric-level COUNT, calculate one numeric count per
+    group instead of using _group_aggregate()'s frequency
+    breakdown format.
+
+    Example:
+        Show invoice count year wise
+
+    Produces:
+        2025 -> 4481
+        2026 -> 3844
+    """
+
+    merged: Dict[str, Dict[str, Any]] = {}
+
+    for metric in metrics:
+
+        function = metric.get("function")
+        column = metric.get("column")
+        metric_name = metric.get("metric")
+
+        # ----------------------------------------------------
+        # COUNT METRIC
+        #
+        # In multi-metric queries such as:
+        #
+        #   Show invoice count and discount year wise
+        #
+        # COUNT means "number of non-empty values in this
+        # column per group".
+        #
+        # Do NOT call _group_aggregate() here because its
+        # COUNT-with-column mode creates a frequency breakdown:
+        #
+        #   Date | InvoiceNo | Count
+        #
+        # We need:
+        #
+        #   Date | Invoice Count
+        # ----------------------------------------------------
+
+        if function == "count":
+
+            grouped_count: Dict[str, Dict[str, Any]] = {}
+
+            for row in rows:
+
+                if not isinstance(row, dict):
+                    continue
+
+                group_value = row.get(group_column)
+
+                # Apply the same temporal grouping used by
+                # _group_aggregate().
+                if time_period:
+                    parsed_group_date = _parse_date(
+                        group_value
+                    )
+
+                    if parsed_group_date:
+
+                        if time_period == "year":
+                            group_value = str(
+                                parsed_group_date.year
+                            )
+
+                        elif time_period == "quarter":
+                            quarter = (
+                                (parsed_group_date.month - 1)
+                                // 3
+                            ) + 1
+
+                            group_value = (
+                                f"{parsed_group_date.year}-Q{quarter}"
+                            )
+
+                        elif time_period == "month":
+                            group_value = (
+                                f"{parsed_group_date.year}-"
+                                f"{parsed_group_date.month:02d}"
+                            )
+
+                        elif time_period == "day":
+                            group_value = (
+                                parsed_group_date.strftime(
+                                    "%Y-%m-%d"
+                                )
+                            )
+
+                group_key = str(group_value)
+
+                if group_key not in grouped_count:
+
+                    grouped_count[group_key] = {
+                        group_column: group_value,
+                        "count": 0,
+                    }
+
+                value = (
+                    row.get(column)
+                    if column
+                    else None
+                )
+
+                if value not in (None, ""):
+
+                    grouped_count[group_key][
+                        "count"
+                    ] += 1
+
+            for group_key, grouped_row in (
+                grouped_count.items()
+            ):
+
+                if group_key not in merged:
+
+                    merged[group_key] = {
+                        group_column: grouped_row.get(
+                            group_column
+                        ),
+                    }
+
+                if metric_name == "invoice_count":
+
+                    result_column = "Invoice Count"
+
+                else:
+
+                    result_column = "Count"
+
+                merged[group_key][result_column] = (
+                    grouped_row.get("count", 0)
+                )
+
+            continue
+
+        # ----------------------------------------------------
+        # ALL NON-COUNT METRICS
+        #
+        # Keep the existing aggregation behavior.
+        # ----------------------------------------------------
+
+        grouped = _group_aggregate(
+                    [],
+            group_column,
+            function,
+            column,
+            time_period=time_period,
+        )
+
+        for grouped_row in grouped:
+
+            if not isinstance(grouped_row, dict):
+                continue
+
+            group_value = grouped_row.get(
+                group_column,
+            )
+
+            group_key = str(
+                group_value
+            )
+
+            if group_key not in merged:
+
+                merged[group_key] = {
+                    group_column: group_value,
+                }
+
+            # Find the aggregate value generated by
+            # _group_aggregate().
+            aggregate_value = None
+            result_column = None
+
+            for key, value in grouped_row.items():
+
+                if key == group_column:
+                    continue
+
+                aggregate_value = value
+                result_column = key
+                break
+
+            if metric_name == "sales":
+                result_column = "Total Sales"
+
+            elif metric_name == "profit":
+                result_column = "Total Profit"
+
+            elif metric_name == "quantity":
+                result_column = "Total Quantity"
+
+            elif metric_name == "discount":
+                result_column = "Total Discount"
+
+            elif metric_name == "gst":
+                result_column = "Total GST"
+
+            elif metric_name == "cgst":
+                result_column = "Total CGST"
+
+            elif metric_name == "sgst":
+                result_column = "Total SGST"
+
+            elif metric_name == "igst":
+                result_column = "Total IGST"
+
+            elif metric_name == "taxable":
+                result_column = "Total Taxable Amount"
+
+            elif metric_name == "cost":
+                result_column = "Total Cost"
+
+            elif metric_name == "invoice_count":
+                result_column = "Invoice Count"
+
+            if result_column:
+
+                merged[group_key][result_column] = (
+                    aggregate_value
+                )
+
+    # --------------------------------------------------------
+    # Return merged multi-metric rows.
+    # --------------------------------------------------------
+
+    return list(merged.values())
 
 def _detect_intent(
     question: str,
@@ -7147,6 +9940,7 @@ def _detect_intent(
     aggregate_function: Optional[str],
 ) -> str:
     text = _normalize_text(question)
+    
 
     if group_by and aggregate_function:
         return "group_aggregate"
@@ -7200,6 +9994,19 @@ def _apply_single_filter(
 
         if operator == "=":
             if _values_equal(actual, expected):
+                result.append(row)
+
+        elif operator == "in":
+            expected_values = (
+                expected
+                if isinstance(expected, (list, tuple, set))
+                else [expected]
+            )
+
+            if any(
+                _values_equal(actual, value)
+                for value in expected_values
+            ):
                 result.append(row)
 
         elif operator == "contains":
@@ -7875,6 +10682,43 @@ def _group_aggregate(
 
                 continue
 
+            
+            # ------------------------------------------------
+            # TEMPORAL COUNT
+            #
+            # Example:
+            #   Show invoice count year wise
+            #
+            # Group:
+            #   Date -> year
+            #
+            # Count:
+            #   InvoiceNo
+            #
+            # We need ONE row per period:
+            #   2025 -> 4480
+            #   2026 -> 3845
+            #
+            # Do not expand InvoiceNo into separate rows.
+            # ------------------------------------------------
+
+            if time_period and aggregate_column:
+
+                result.append(
+                    {
+                        group_column: group_value,
+                        result_column: len(
+                            [
+                                row
+                                for row in group_rows
+                                if row.get(aggregate_column)
+                                not in (None, "")
+                            ]
+                        ),
+                    }
+                )
+
+                continue
             # ------------------------------------------------
             # COUNT with a target column:
             #
@@ -8107,6 +10951,136 @@ def _score_dataset(
 
     
     # ==========================================================
+    # SEMANTIC QUERY COMPATIBILITY
+    # ==========================================================
+    #
+    # Prefer datasets that can satisfy the requested entity AND
+    # metric together.
+    #
+    # Example:
+    #   "which client has highest sales"
+    #
+    # The winning dataset should contain:
+    #   client/customer -> PartyName
+    #   sales           -> GrossAmount
+    #
+    # This is intentionally schema-driven. It does not special-case
+    # a particular natural-language query.
+    # ==========================================================
+
+    try:
+        ranking_match = re.search(
+            r"\b(?:which|what)\s+(.+?)\s+"
+            r"(?:has|have|with)\s+"
+            r"(?:highest|maximum|max|largest|lowest|minimum|min|smallest)\s+"
+            r"(.+?)\s*$",
+            question_text,
+            flags=re.IGNORECASE,
+        )
+
+    
+        if ranking_match:
+                requested_entity = ranking_match.group(1).strip()
+                requested_metric = re.sub(
+                    r"[?!.]+$",
+                    "",
+                    ranking_match.group(2).strip(),
+                ).strip()
+
+                # Resolve the requested grouping concept against the
+                # current dataset schema.
+                resolved_group = _resolve_column(
+                    requested_entity,
+                    dataset,
+                    schema,
+                    [],
+                )
+
+                # Try the existing semantic aliases through the same
+                # resolver. No physical source column is hardcoded.
+                if not resolved_group:
+                    entity_aliases = {
+                        "client": (
+                            "customer",
+                            "party",
+                            "party name",
+                        ),
+                        "buyer": (
+                            "customer",
+                            "party",
+                            "party name",
+                        ),
+                        "customer": (
+                            "customer",
+                            "party",
+                            "party name",
+                        ),
+                        "party": (
+                            "party",
+                            "party name",
+                            "customer",
+                        ),
+                        "item": (
+                            "item",
+                            "product",
+                        ),
+                    }
+
+                    entity_norm = _normalize_text(
+                        requested_entity
+                    )
+
+                    for alias, candidates in entity_aliases.items():
+                        if not re.search(
+                            rf"\b{re.escape(alias)}s?\b",
+                            entity_norm,
+                            flags=re.IGNORECASE,
+                        ):
+                            continue
+
+                        for candidate in candidates:
+                            resolved_group = _resolve_column(
+                                candidate,
+                                dataset,
+                                schema,
+                                [],
+                            )
+                            if resolved_group:
+                                break
+
+                        if resolved_group:
+                            break
+
+                # Resolve the requested metric against the same dataset.
+                resolved_metric = None
+
+                if requested_metric:
+                    try:
+                        resolved_metric = _resolve_universal_metric(
+                            requested_metric,
+                            dataset,
+                            schema,
+                            [],
+                        )
+                    except Exception:
+                        resolved_metric = None
+
+                # Strong preference only when BOTH semantic requirements
+                # are actually supported by this dataset.
+                if resolved_group and resolved_metric:
+                    score += 750
+
+                # A dataset that supports only one side should not receive
+                # this compatibility bonus.
+                elif resolved_group or resolved_metric:
+                    score += 100
+
+    except Exception:
+        # Dataset scoring must never fail because semantic resolution
+        # is unavailable for a particular dataset.
+        pass
+
+    # ==========================================================
     # DOMAIN / DATASET SEMANTIC MATCH
     # ==========================================================
     #
@@ -8334,7 +11308,86 @@ def _score_dataset(
         if token not in ignored_query_words
         and len(token) >= 2
     }
+    # ==========================================================
+    # INVOICE COUNT / INVOICE NUMBER QUERY PREFERENCE
+    # ==========================================================
+    #
+    # Invoice-count questions should prefer a transaction-level
+    # dataset containing an invoice identifier such as InvoiceNo.
+    #
+    # This prevents summary datasets such as "Monthly Trend"
+    # from winning merely because they contain an "Invoices"
+    # or "Invoice Value" column.
+    # ==========================================================
 
+    invoice_count_query = bool(
+        re.search(
+            r"\b(?:invoice\s+count|invoice\s+counts|"
+            r"count\s+(?:of\s+)?invoices?|"
+            r"number\s+of\s+invoices?|"
+            r"how\s+many\s+invoices?)\b",
+            question_text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if invoice_count_query:
+        normalized_invoice_columns = {
+            _normalize_column(column)
+            for column in columns
+            if _normalize_column(column)
+        }
+
+        invoice_identifier_columns = {
+            "invoiceno",
+            "invoice number",
+            "invoice no",
+            "bill no",
+            "bill number",
+            "invoice id",
+            "invoice identifier",
+        }
+
+        invoice_identifier_match = (
+            normalized_invoice_columns
+            .intersection(
+                {
+                    _normalize_column(value)
+                    for value in invoice_identifier_columns
+                }
+            )
+        )
+
+        if invoice_identifier_match:
+            # Strong preference for transaction-level datasets
+            # containing an actual invoice identifier.
+            score += 500
+
+        # Summary datasets with only an invoice-count/metric
+        # column should not beat transaction-level invoice data.
+        summary_invoice_columns = {
+            "invoices",
+            "invoice count",
+            "invoice counts",
+            "invoice value",
+            "total invoice value",
+        }
+
+        summary_match = (
+            normalized_invoice_columns
+            .intersection(
+                {
+                    _normalize_column(value)
+                    for value in summary_invoice_columns
+                }
+            )
+        )
+
+        if (
+            summary_match
+            and not invoice_identifier_match
+        ):
+            score -= 100
     # ==========================================================
     # 1. FILENAME MATCH
     # ==========================================================
@@ -8614,8 +11667,41 @@ def _score_dataset(
     }
 
     # Only perform the expensive row scan when the question
-    # contains a possible free-form categorical value.
-    if row_match_tokens:
+    # contains a genuine free-form categorical value.
+    #
+    # Metric/time-analysis queries such as:
+    #   "Show invoice count and discount year wise"
+    #   "Show sales month wise"
+    #   "Show profit quarter wise"
+    #
+    # do not need a full dataset row scan during dataset
+    # selection. Their columns are resolved from schema/metadata.
+    #
+    # Free-form value queries such as:
+    #   "sales for Delhi"
+    #   "customer Shalini Sharma"
+    #   "product Ladies Watch"
+    #
+    # still use the row-value matching logic.
+    time_or_metric_query = bool(
+        re.search(
+            r"\b(?:year|yearly|annual|month|monthly|quarter|"
+            r"quarterly|day|daily|week|weekly|"
+            r"wise|trend|over\s+time|period)\b",
+            question_text,
+            flags=re.IGNORECASE,
+        )
+        and re.search(
+            r"\b(?:sales?|revenue|billing|turnover|invoice|invoices|"
+            r"quantity|qty|amount|value|discount|taxable|gst|cgst|"
+            r"sgst|igst|profit|cost|total|count|average|avg|mean|"
+            r"maximum|max|highest|minimum|min|lowest|top|bottom)\b",
+            question_text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if row_match_tokens and not time_or_metric_query:
 
         try:
             dataset_id = dataset.get("id")
@@ -9050,14 +12136,16 @@ def _score_dataset(
 
     generic_sales_query = bool(
         re.search(
-            r"\b(?:sales?|revenue|turnover|billing)\b",
+            r"\b(?:sales?|sale|selling|revenue|turnover|billing|"
+            r"business|business\s+value|business\s+amount|"
+            r"sales\s+value|selling\s+value|business\s+done)\b",
             question_text,
         )
         and not re.search(
             r"\b(?:by|per|each|product|products|customer|customers|"
             r"party|parties|category|categories|payment|"
             r"month|monthly|day|daily|date|year|yearly|"
-            r"highest|lowest|top|bottom|profit)\b",
+            r"profit)\b",
             question_text,
         )
     )
@@ -9286,7 +12374,7 @@ def detect_dynamic_intent(
         question
     )
 
-    text = _normalize_text(question)
+    text = _normalize_query(question)
 
     # ==========================================================
     # 1. EXPLICIT GROUP + AGGREGATION
@@ -9390,10 +12478,2941 @@ def detect_dynamic_intent(
 
     return {
         **state,
+        "original_question": question,
+        "question": text,
         "intent": intent,
         "export_requested": export_requested,
         "export_format": export_format,
     }
+    
+# ============================================================
+# UNIVERSAL QUERY PLANNER
+# ============================================================
+
+def universal_query_planner(
+    state: DynamicAgentState,
+) -> DynamicAgentState:
+    """
+    Convert the user's natural-language query into a canonical
+    query that the existing deterministic query engine can execute.
+
+    The LLM is used only for:
+        - understanding natural language
+        - synonyms
+        - spelling mistakes
+        - Hindi / Hinglish
+        - mapping business terms to actual dataset columns
+        - temporal intent interpretation
+
+    The LLM MUST NOT calculate numeric answers.
+
+    Actual calculations remain inside the existing Python/SQL
+    execution engine.
+    """
+
+    original_question = (
+        state.get("original_question")
+        or state.get("question")
+        or ""
+    ).strip()
+
+    dataset = state.get("dataset") or {}
+    schema = state.get("schema") or []
+
+    if not original_question:
+        return {
+            **state,
+            "query_plan": {
+                "status": "DATA_NOT_AVAILABLE",
+                "reason": "Empty query",
+            },
+            "error": "Information is not available in the uploaded data.",
+        }
+
+    # --------------------------------------------------------
+    # Build schema description.
+    #
+    # Only actual uploaded columns are provided to the model.
+    # No full dataset is sent.
+    # --------------------------------------------------------
+
+    schema_lines = []
+
+    for item in schema:
+        if not isinstance(item, dict):
+            continue
+
+        source_column = item.get("source_column")
+        data_type = item.get("data_type")
+        normalized_name = item.get("normalized_column")
+
+        if not source_column:
+            continue
+
+        schema_lines.append(
+            {
+                "column": str(source_column),
+                "data_type": str(data_type or ""),
+                "normalized_name": str(
+                    normalized_name or ""
+                ),
+            }
+        )
+
+    if not schema_lines:
+        return {
+            **state,
+            "query_plan": {
+                "status": "DATA_NOT_AVAILABLE",
+                "reason": "Dataset schema is empty",
+            },
+            "error": "Information is not available in the uploaded data.",
+        }
+
+    dataset_name = str(
+        dataset.get("name")
+        or dataset.get("filename")
+        or dataset.get("file_name")
+        or "uploaded dataset"
+    )
+
+    dataset_type = str(
+        dataset.get("data_type")
+        or state.get("dataset_type")
+        or ""
+    )
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # Tell the model that temporal expressions refer to the
+    # latest period AVAILABLE IN THE DATASET, not today's date.
+    # --------------------------------------------------------
+
+    prompt = f"""
+You are the Universal Query Planner for a business analytics
+application.
+
+Your job is to understand the user's business question and
+convert it into ONE canonical English query that an existing
+deterministic Python query engine can execute.
+
+You are NOT the calculator.
+
+Never calculate sales, profit, quantity, GST, discount, counts,
+percentages, or any other numeric answer.
+
+The actual uploaded dataset will be queried later by Python.
+
+DATASET:
+{dataset_name}
+
+DATASET TYPE:
+{dataset_type}
+
+AVAILABLE COLUMNS:
+{schema_lines}
+
+USER QUESTION:
+{original_question}
+
+IMPORTANT RULES:
+
+1. Use ONLY columns that actually exist in AVAILABLE COLUMNS.
+
+2. Never invent a column.
+
+3. Business synonyms are allowed ONLY when they refer to
+   the same business concept.
+
+   Examples of valid semantic mappings:
+
+   customer -> PartyName / Customer Name / actual customer column
+   client -> customer column
+   buyer -> customer column
+
+   sales -> actual sales/revenue amount column
+   sale -> actual sales amount column
+   revenue -> actual sales/revenue amount column
+   turnover -> actual sales/revenue amount column
+   billing -> actual sales/billing amount column
+
+   profit -> actual profit column
+
+   qty -> actual quantity column
+   quantity -> actual quantity column
+
+   GST -> actual GST / TotalGST column
+   CGST -> actual CGST column
+   SGST -> actual SGST column
+   IGST -> actual IGST column
+
+   discount -> actual discount amount/percentage column
+
+   invoice value -> actual invoice-total/value column
+   invoice amount -> actual invoice amount column
+   invoice total -> actual invoice-total column
+
+   product -> actual Product / Item column
+   item -> actual Product / Item column
+
+   state -> actual state column
+   category -> actual category column
+
+   IMPORTANT:
+   Do NOT treat different business concepts as synonyms merely
+   because an available numeric column could be used to calculate
+   a number.
+
+   Examples of INVALID substitutions:
+
+   purchase != sales
+   purchase != taxable amount
+   purchase != invoice total
+   purchase != revenue
+
+   salary != profit
+   salary != sales
+   salary != taxable amount
+
+   phone number != GSTIN
+   phone number != invoice number
+
+   city != state
+   city != party state
+
+   If the requested business concept does not exist in the
+   AVAILABLE COLUMNS, return DATA_NOT_AVAILABLE.
+
+   Never use a merely similar numeric column as a substitute for
+   a missing business concept.
+
+   3A. SALES / INVOICE VALUE PRIORITY:
+
+      When AVAILABLE COLUMNS contains a dedicated sales amount
+      column such as GrossAmount, SalesAmount, Sales, Revenue,
+      Turnover, or BillingAmount:
+
+      - "sales", "sale", "revenue", "turnover", and "billing"
+        MUST refer to that dedicated sales amount column.
+      - Do NOT map generic "sales" to InvoiceTotal merely because
+        InvoiceTotal is numeric.
+      - "invoice value", "invoice amount", and "invoice total"
+        refer to InvoiceTotal or the actual invoice-total column.
+      - Therefore, if both GrossAmount and InvoiceTotal exist:
+          sales -> GrossAmount
+          invoice value -> InvoiceTotal
+
+      This distinction is mandatory even when both columns are
+      numeric.
+      
+    3B. ADDITIONAL SALES / BUSINESS SYNONYMS:
+
+      The following expressions refer to the SALES business
+      concept when a dedicated sales amount column exists:
+
+      - business value
+      - business amount
+      - business done
+      - total business
+      - sales amount
+      - sales value
+      - selling amount
+      - selling value
+      - selling
+      - selling done
+      - kitni selling hui
+      - kitna business hua
+      - kitna business hua hai
+      - kitni sales hui
+      - kitni sale hui
+      - kitna sale hua
+      - business kitna hua
+
+      These expressions MUST map to the same dedicated sales
+      amount column used for "sales".
+
+      If both GrossAmount and InvoiceTotal exist:
+          business value -> GrossAmount
+          sales amount -> GrossAmount
+          selling -> GrossAmount
+          kitni selling hui -> GrossAmount
+          kitna business hua -> GrossAmount
+
+      Never map these sales expressions to InvoiceTotal merely
+      because InvoiceTotal is numeric.
+
+   3C. ADDITIONAL PROFIT SYNONYMS:
+
+      The following expressions refer to the PROFIT business
+      concept when a dedicated profit column exists:
+
+      - earning
+      - earnings
+      - gain
+      - gains
+      - profit amount
+      - profit value
+      - profit earned
+      - kamai
+      - kamaai
+      - fayda
+      - faayda
+      - kitna profit hua
+      - kitni kamai hui
+      - kitna fayda hua
+      - kitna gain hua
+
+      These expressions MUST map to the same dedicated profit
+      column used for "profit".
+
+      Example:
+          earning -> Profit
+          gain -> Profit
+          kamai -> Profit
+          fayda -> Profit
+
+      Do NOT map earning, gain, kamai, or fayda to sales,
+      invoice value, taxable amount, or another numeric column.
+
+   3D. CONTEXT-SAFE SEMANTIC MAPPING:
+
+      Semantic synonyms are allowed only when the corresponding
+      business concept can be resolved against AVAILABLE COLUMNS.
+
+      For example:
+
+      If AVAILABLE COLUMNS contains:
+          GrossAmount
+          InvoiceTotal
+          Profit
+
+      then:
+          business value -> GrossAmount
+          selling -> GrossAmount
+          earning -> Profit
+          gain -> Profit
+          kamai -> Profit
+          fayda -> Profit
+
+      If AVAILABLE COLUMNS does NOT contain a sales amount concept,
+      do not invent one.
+
+      If AVAILABLE COLUMNS does NOT contain a profit concept,
+      do not invent one.
+
+      If a requested concept cannot be resolved safely, return:
+          status = "DATA_NOT_AVAILABLE"
+
+      Never substitute an unrelated numeric column.
+
+4. Prefer the exact uploaded source column when possible.
+
+5. Understand English, Hindi and Hinglish.
+
+   Examples:
+   "sabse zyada sales wala customer"
+   "kis customer ki highest sale hai"
+   "customer wise profit batao"
+   "last month ka total"
+   "pichle mahine ki sales"
+   "august me highest sales"
+
+   These should be understood as business queries.
+    5A. DATA-AWARE NATURAL LANGUAGE RESOLUTION
+
+    The user does NOT need to know the exact uploaded column names or
+    exact stored values.
+
+    Understand the user's meaning using the uploaded dataset context.
+
+    PARTIAL NAME MATCHING:
+
+    If the user provides only part of a customer, party, product,
+    employee, category, or other uploaded value, resolve it against
+    the actual uploaded data when available.
+
+    Example:
+
+    Uploaded value:
+    "Pooja Sharma"
+
+    User:
+    "Pooja ki sales"
+
+    Interpret the request as sales for the matching uploaded customer.
+
+    IMPORTANT:
+    - Never invent the missing part of a name.
+    - Only complete a partial name when the uploaded data supports it.
+    - If exactly one uploaded value matches, use that value.
+    - If multiple values match, do not arbitrarily choose one.
+    - If a unique answer is required but the match is ambiguous,
+    return DATA_NOT_AVAILABLE or preserve the filter for Python
+    resolution.
+
+    Examples:
+
+    "Pooja" -> matching PartyName value such as "Pooja Sharma"
+    "Rahul" -> matching uploaded customer/employee value
+    "Sharma" -> matching uploaded PartyName values
+
+    The Python execution layer must verify the final value against
+    actual uploaded rows.
+
+    VALUE MATCHING:
+
+    Resolve natural-language references to actual uploaded values.
+
+    Examples:
+
+    "watch" -> matching Product/Category values
+    "mobile" -> matching Product/Category values
+    "pooja" -> matching PartyName values
+    "cash" -> matching PaymentMode values
+
+    Never invent a matching value.
+
+    If no matching value exists in the uploaded data, return
+    DATA_NOT_AVAILABLE.
+
+    5B. SPELLING ERROR AND TYPO HANDLING
+
+    Correct obvious spelling mistakes internally before interpreting
+    the query.
+
+    Examples:
+
+    custmer -> customer
+    customer -> customer
+    profitt -> profit
+    proft -> profit
+    saless -> sales
+    sles -> sales
+    quntity -> quantity
+    quantaty -> quantity
+    avergae -> average
+    avrage -> average
+    avrg -> average
+    invoce -> invoice
+    invc -> invoice
+    prodct -> product
+    catgory -> category
+    maxium -> maximum
+    minmum -> minimum
+
+    Understand spelling mistakes even when the misspelled word is
+    combined with other words.
+
+    Examples:
+
+    "avergae profit"
+    -> average profit
+
+    "profitt latest month"
+    -> profit latest month
+
+    "quntity by product"
+    -> quantity by product
+
+    "top custmers by saless"
+    -> top customers by sales
+
+    Do not reject a query merely because of spelling mistakes.
+
+    If the intended concept cannot be determined safely, return
+    DATA_NOT_AVAILABLE instead of guessing.
+
+    5C. FIRST / EARLIEST / LATEST / PREVIOUS PERIOD
+
+    Temporal words MUST be resolved relative to the actual uploaded
+    dataset.
+
+    IMPORTANT:
+
+    "first month" means the earliest month actually present in the
+    uploaded dataset.
+
+    "first year" means the earliest year actually present.
+
+    "latest month" means the latest month actually present.
+
+    "latest year" means the latest year actually present.
+
+    "previous month" means the immediately preceding available month.
+
+    "previous year" means the immediately preceding available year.
+
+    "last 3 months" means the three latest available months.
+
+    Do NOT assume:
+
+    first month = January
+    first year = 2020
+    latest month = current calendar month
+    latest year = current calendar year
+
+    unless the uploaded dataset actually contains and supports that
+    interpretation.
+
+    Examples:
+
+    "first month sales"
+    -> sales for the earliest available month
+
+    "latest month profit"
+    -> profit for the latest available month
+
+    "previous month sales"
+    -> sales for the month immediately before the latest available month
+
+    "first month average sales"
+    -> average sales for the earliest available month
+
+    The actual period must ultimately be verified by Python against the
+    uploaded Date column.
+
+    5D. TIME EXPRESSIONS
+
+    Understand:
+
+    first month
+    earliest month
+    starting month
+
+    latest month
+    last month
+    most recent month
+
+    first year
+    earliest year
+
+    latest year
+    current/latest available year
+
+    previous year
+    prior year
+
+    last 3 months
+    previous 3 months
+
+    first quarter
+    earliest quarter
+
+    latest quarter
+    most recent quarter
+
+    Q1
+    Q2
+    Q3
+    Q4
+
+    January 2026
+    08-2026
+    2026-08
+    15-08-2026
+    15 August 2026
+
+    Preserve the temporal meaning in the query plan.
+
+    Do NOT calculate numeric results.
+
+    Do NOT invent missing dates.
+6. Correct obvious spelling mistakes internally.
+
+   Examples:
+   custmer -> customer
+   profitt -> profit
+   saless -> sales
+   quntity -> quantity
+   invoce -> invoice
+
+7. Temporal expressions MUST use the latest period available
+   in the uploaded dataset.
+
+   "latest month"
+   "last month"
+   "pichla month"
+   "latest year"
+
+   must NOT be interpreted using today's calendar date.
+   DATA-AWARE VALUE RESOLUTION
+
+    The LLM must understand the user's meaning, but it must never invent actual values that are not present in the uploaded dataset.
+
+    Examples:
+
+    User:
+    "Pooja ki sales"
+
+    If AVAILABLE COLUMNS contains:
+    PartyName, GrossAmount, Date, Product
+
+    The planner should understand:
+    - customer/entity column = PartyName
+    - sales metric = GrossAmount
+    - user-provided value = "Pooja"
+
+    Do NOT invent:
+    "Pooja Sharma"
+
+    Instead, preserve the user value "Pooja" for Python-side data resolution.
+
+    Python will check the actual uploaded PartyName values and may resolve:
+    "Pooja" -> "Pooja Sharma"
+
+    Only an actual value present in the uploaded dataset may be used.
+
+    Similarly:
+
+    User:
+    "first month sales"
+
+    The planner should understand that:
+    - metric = sales
+    - aggregate_column = the actual sales source column
+    - time position = first/earliest available period
+
+    Do NOT assume January 2024, January 2025, January 2026, or any other month.
+
+    Python must determine the earliest actual month available in the uploaded dataset.
+
+    Similarly:
+
+    User:
+    "latest month sales"
+
+    Do NOT use the current calendar month automatically.
+
+    Python must determine the latest month actually present in the uploaded dataset.
+
+    The LLM is responsible for:
+    - understanding intent
+    - correcting spelling
+    - identifying metric
+    - identifying source column
+    - identifying entity/filter
+    - identifying time intent
+    - identifying aggregation
+    - creating the query plan
+
+    Python is responsible for:
+    - resolving actual uploaded values
+    - resolving partial names
+    - resolving spelling against actual values when safely possible
+    - resolving first/earliest available period
+    - resolving latest available period
+    - resolving previous period
+    - validating columns
+    - validating values
+    - filtering actual rows
+    - calculating actual numeric results
+
+    Never invent missing data.
+    Never guess an entity value.
+    Never guess a date/period that is not present in the uploaded dataset.
+
+8. If the requested metric, dimension, entity type, or information
+   cannot be represented using the AVAILABLE COLUMNS, return:
+
+   status = "DATA_NOT_AVAILABLE"
+
+9. Do not invent values or columns.
+
+10. Keep the canonical query simple and explicit.
+
+   10A. Preserve ALL requested business metrics when the user asks
+       for multiple metrics in the same question.
+
+       Examples:
+
+       "sales and profit last 3 months"
+       -> "Show sales and profit for the last 3 months, grouped by month"
+
+       "sales profit average last 3 months"
+       -> "Show average sales and average profit for the last 3 months"
+
+       "sales and GST month wise"
+       -> "Show sales and GST grouped by month"
+
+       "quantity and discount product wise"
+       -> "Show quantity and discount grouped by product"
+
+       IMPORTANT:
+       - Never silently drop one of the requested metrics.
+       - Multiple metrics are valid even though the JSON has one
+         "metric" field.
+       - For multiple metrics, "metric" may contain a comma-separated
+         list of business metrics.
+       - Do NOT mark a query DATA_NOT_AVAILABLE merely because
+         "metric" contains multiple requested metrics.
+       - Validate each requested metric concept separately.
+       - Preserve the original multi-metric meaning in canonical_query.
+
+
+11. Preserve ranking limits.
+
+   "top 5 customers by sales"
+   -> "Show top 5 customers by total sales"
+
+12. Preserve grouping.
+
+   "customer wise profit"
+   -> "Show total profit grouped by customer"
+
+13. Preserve aggregation.
+
+   AGGREGATE FUNCTION MAPPING:
+   - total, sum, "how much", "kitna total" -> "sum"
+   - average, avg, mean, ausat -> "average"
+   - maximum, max, highest, largest, "sabse zyada" -> "max"
+   - minimum, min, lowest, smallest, "sabse kam" -> "min"
+   - median, middle value -> "median"
+   - count, "how many", "number of" -> "count"
+
+   Put the requested aggregation in "aggregate_function".
+   Do NOT calculate the numeric result.
+   If no aggregation is explicitly requested, infer "sum" for business metrics when the user asks for the metric itself or asks for it for a time period.
+
+
+   "average invoice value"
+   -> "Show average invoice value"
+    13A. DEFAULT AGGREGATION FOR BUSINESS METRICS
+
+    If the user asks for a business metric without explicitly specifying
+    an aggregation function, use SUM.
+
+    Examples:
+
+    "profit latest month"
+    -> aggregate_function = "sum"
+
+    "sales 2026"
+    -> aggregate_function = "sum"
+
+    "quantity August"
+    -> aggregate_function = "sum"
+
+    "GST last year"
+    -> aggregate_function = "sum"
+
+    "first month sales"
+    -> aggregate_function = "sum"
+
+    "average profit"
+    -> aggregate_function = "average"
+
+    "avergae profit"
+    -> aggregate_function = "average"
+
+    "highest sales"
+    -> aggregate_function = "max"
+
+    "lowest profit"
+    -> aggregate_function = "min"
+
+    "how many invoices"
+    -> aggregate_function = "count"
+
+    Use null ONLY when aggregation does not apply, such as:
+
+    - detail records
+    - projection
+    - lookup
+    - raw transaction rows
+14. Preserve comparisons.
+
+   "July vs August sales"
+   -> "Compare sales for July and August"
+
+15. Preserve filters.
+
+   "sales above 50000"
+   -> "Show sales above 50000"
+
+16. Preserve detail and lookup intent exactly.
+
+   IMPORTANT:
+   - If the user asks to "show invoices", "list invoices", "display invoices", "show transactions", or similar detail records, DO NOT convert the request into a projection of a single column such as InvoiceNo.
+   - Preserve the requested entity as the canonical query.
+   - Example:
+     "show invoices for Pooja Sharma"
+     -> "Show invoices for Pooja Sharma"
+   - Example:
+     "list invoices for Pooja Sharma"
+     -> "List invoices for Pooja Sharma"
+   - Do NOT rewrite:
+     "show invoices for Pooja Sharma"
+     -> "Show InvoiceNo for PartyName = 'Pooja Sharma'"
+   - Only use operation = "projection" when the user explicitly asks for specific columns.
+     Example:
+     "show InvoiceNo and Date for Pooja Sharma"
+     -> operation = "projection"
+   - A request for invoices/transactions without explicit column names means detail rows, not a column projection.
+
+16. Do not answer the question yourself.
+
+Return ONLY valid JSON.
+
+Required JSON structure:
+
+{{
+  "status": "OK" or "DATA_NOT_AVAILABLE",
+  "canonical_query": "...",
+  "operation": "aggregate|group_aggregate|ranking|comparison|filter|projection|lookup|count|search",
+  "metric": "...",
+  "metrics": [],
+  "aggregate_function": "sum|average|max|min|median|count|null",
+  "aggregate_column":"...",
+  "group_by": "...",
+  "filters": [],
+  "time": null,
+  "limit": null,
+  "direction": "asc|desc|null",
+  "reason": ""
+}}
+AGGREGATE COLUMN RULES
+
+"aggregate_column":
+- Must contain the actual uploaded source column used for the requested metric.
+- Must exist in AVAILABLE COLUMNS.
+- Must be resolved from the uploaded dataset schema.
+- Never invent a column.
+- Never use an unrelated numeric column as a substitute.
+- If the requested metric cannot be mapped to an available source column, return DATA_NOT_AVAILABLE.
+
+Examples:
+- profit -> "Profit"
+- quantity -> "Qty"
+- sales -> "GrossAmount" when GrossAmount is the dedicated sales column
+- GST -> "TotalGST" when TotalGST is the requested GST amount
+- invoice value -> "InvoiceTotal"
+- taxable amount -> "TaxableAmount"
+- discount -> "DiscountAmt"
+- cost -> "Cost"
+
+Important:
+The LLM must identify the SOURCE COLUMN only.
+The LLM must NOT calculate the numeric result.
+Python will calculate the actual result from uploaded data.
+Additional structured fields:
+
+"metrics":
+- List every requested metric separately.
+- Example:
+  "sales and profit"
+  -> ["sales", "profit"]
+- For a single metric:
+  ["sales"]
+
+"filters":
+- Preserve explicit filters from the user query.
+- Each filter should contain:
+  {{
+    "column": "...",
+    "operator": "...",
+    "value": "..."
+  }}
+- Use only actual uploaded columns or valid business concepts.
+
+"time":
+- Preserve explicit temporal intent.
+- Example:
+  "latest month"
+  -> {{
+       "type": "relative",
+       "period": "month",
+       "position": "latest"
+     }}
+- Example:
+  "last 3 months"
+  -> {{
+       "type": "relative",
+       "period": "month",
+       "count": 3,
+       "position": "last"
+     }}
+- Example:
+  "August 2026"
+  -> {{
+       "type": "absolute",
+       "period": "month",
+       "value": "August 2026"
+     }}
+- Example:
+  "July vs August"
+  -> {{
+       "type": "comparison",
+       "period": "month",
+       "values": ["July", "August"]
+     }}
+
+IMPORTANT:
+- Do not calculate dates.
+- Do not calculate metric values.
+- Preserve the user's temporal meaning.
+- Relative temporal expressions refer to the latest period available
+  in the uploaded dataset.
+
+For fields that are not applicable, use null.
+
+For DATA_NOT_AVAILABLE:
+- canonical_query must be ""
+- reason must briefly explain what information is missing.
+"""
+
+    # ============================================================
+    # DETERMINISTIC FAST PATH
+    # ============================================================
+    # If the query can be resolved completely from the uploaded
+    # schema without requiring LLM interpretation, return the
+    # structured plan immediately.
+    #
+    # This avoids unnecessary LLM latency for queries such as:
+    #   total sales
+    #   total profitt
+    #   total quntity
+    #   average profit
+    #   which client has highest sales
+    #   top 3 buyers by revenue
+    #
+    # Ambiguous queries continue to the LLM below.
+    # ============================================================
+
+    fast_question = _normalize_text(original_question).strip()
+
+    # Never short-circuit relative temporal queries here.
+    # Their actual period must be resolved later from uploaded data.
+    has_relative_time = bool(
+        re.search(
+            r"\b(?:latest|current|most\s+recent|recent|previous|prior|last)"
+            r"(?:\s+\d+)?\s+(?:available\s+)?"
+            r"(?:\d+\s+)?(?:month|months|year|years|quarter|quarters)\b",
+            fast_question,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    # Never short-circuit explicit period comparisons.
+    has_period_comparison = bool(
+        re.search(
+            r"\b(?:growth|difference|change|compare|comparison)"
+            r"\b.*\b(?:20\d{2}|year|years|month|months|quarter|quarters)\b",
+            fast_question,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    fast_plan = None
+
+    if not has_relative_time and not has_period_comparison:
+        # --------------------------------------------------------
+        # TOP / BOTTOM N RANKING
+        # --------------------------------------------------------
+        top_match = re.search(
+            r"\b(top|bottom)\s+(\d+)\s+(.+?)\s+by\s+(.+?)\s*$",
+            fast_question,
+            flags=re.IGNORECASE,
+        )
+
+        if top_match:
+            direction_word = top_match.group(1).lower()
+            limit = int(top_match.group(2))
+            requested_entity = top_match.group(3).strip()
+            requested_metric = top_match.group(4).strip()
+
+            resolved_group = _resolve_column(
+                requested_entity,
+                dataset,
+                schema,
+                    [],
+            )
+
+            # Common semantic entity aliases.
+            if not resolved_group:
+                entity_aliases = {
+                    "client": ("customer", "party", "party name"),
+                    "clients": ("customer", "party", "party name"),
+                    "buyer": ("customer", "party", "party name"),
+                    "buyers": ("customer", "party", "party name"),
+                    "customer": ("customer", "party", "party name"),
+                    "customers": ("customer", "party", "party name"),
+                    "party": ("party", "party name", "customer"),
+                    "parties": ("party", "party name", "customer"),
+                    "item": ("item", "product"),
+                    "items": ("item", "product"),
+                }
+
+                aliases = entity_aliases.get(
+                    _normalize_text(requested_entity)
+                )
+
+                if aliases:
+                    for alias in aliases:
+                        resolved_group = _resolve_column(
+                            alias,
+                            dataset,
+                            schema,
+                    [],
+                        )
+                        if resolved_group:
+                            break
+
+            resolved_metric = _resolve_universal_metric(
+                requested_metric,
+                dataset,
+                schema,
+                [],
+            )
+
+            if resolved_group and resolved_metric:
+                fast_plan = {
+                    "status": "OK",
+                    "canonical_query": original_question,
+                    "operation": "ranking",
+                    "metric": requested_metric,
+                    "metrics": [requested_metric],
+                    "aggregate_function": "sum",
+                    "group_by": resolved_group,
+                    "filters": [],
+                    "time": None,
+                    "limit": limit,
+                    "direction": (
+                        "asc"
+                        if direction_word == "bottom"
+                        else "desc"
+                    ),
+                    "reason": "Deterministic semantic ranking fast path",
+                }
+
+        # --------------------------------------------------------
+        # --------------------------------------------------------
+        # TOP / BOTTOM / BEST / WORST N WITH TIME FILTER
+        # Default metric = sales
+        #
+        # Examples:
+        #   top 5 customers in January 2026
+        #   best 5 customers in January 2026
+        #   bottom 5 customers in January 2026
+        #   worst 5 products in 2026
+        #   highest 3 categories in Q1 2026
+        #   lowest 3 categories in 2025
+        # --------------------------------------------------------
+        if fast_plan is None:
+            ranking_time_match = re.search(
+                r"\b(top|bottom|best|worst|highest|lowest|largest|smallest)"
+                r"\s+(\d+)\s+"
+                r"(customers?|clients?|buyers?|parties?|"
+                r"products?|items?|categories?|category)"
+                r"\s+(?:in|for|during)\s+(.+?)\s*$",
+                fast_question,
+                flags=re.IGNORECASE,
+            )
+
+            if ranking_time_match:
+                ranking_word = ranking_time_match.group(1).lower()
+                limit = int(ranking_time_match.group(2))
+                requested_entity = ranking_time_match.group(3).strip()
+                requested_period = ranking_time_match.group(4).strip()
+
+                entity_aliases = {
+                    "customer": ("customer", "party", "party name"),
+                    "customers": ("customer", "party", "party name"),
+                    "client": ("customer", "party", "party name"),
+                    "clients": ("customer", "party", "party name"),
+                    "buyer": ("customer", "party", "party name"),
+                    "buyers": ("customer", "party", "party name"),
+                    "party": ("party", "party name", "customer"),
+                    "parties": ("party", "party name", "customer"),
+                    "product": ("product", "item"),
+                    "products": ("product", "item"),
+                    "item": ("item", "product"),
+                    "items": ("item", "product"),
+                    "category": ("category",),
+                    "categories": ("category",),
+                }
+
+                aliases = entity_aliases.get(
+                    _normalize_text(requested_entity)
+                )
+
+                resolved_group = None
+
+                if aliases:
+                    for alias in aliases:
+                        resolved_group = _resolve_column(
+                            alias,
+                            dataset,
+                            schema,
+                            [],
+                        )
+                        if resolved_group:
+                            break
+
+                # Default metric = sales.
+                resolved_metric = _resolve_universal_metric(
+                    "sales",
+                    dataset,
+                    schema,
+                    [],
+                )
+
+                period_filters = []
+
+                try:
+                    period_filters = _extract_date_filters(
+                        requested_period,
+                        dataset,
+                        schema,
+                        [],
+                    )
+                except Exception:
+                    period_filters = []
+
+                if resolved_group and resolved_metric:
+                    fast_plan = {
+                        "status": "OK",
+                        "canonical_query": original_question,
+                        "operation": "ranking",
+                        "metric": "sales",
+                        "metrics": ["sales"],
+                        "aggregate_function": "sum",
+                        "group_by": resolved_group,
+                        "filters": period_filters,
+                        "time": None,
+                        "limit": limit,
+                        "direction": (
+                            "asc"
+                            if ranking_word in (
+                                "bottom",
+                                "worst",
+                                "lowest",
+                                "smallest",
+                            )
+                            else "desc"
+                        ),
+                        "reason": (
+                            "Deterministic ranking with period "
+                            "filter and default sales metric"
+                        ),
+                    }
+        # --------------------------------------------------------
+        # NATURAL-LANGUAGE SINGLE RANKING WITH TIME FILTER
+        # Examples:
+        #   who has highest sales in January 2026
+        #   who has lowest profit in 2025
+        # --------------------------------------------------------
+        if fast_plan is None:
+            who_ranking_match = re.search(
+                r"\bwho\s+(?:has|have|had)\s+"
+                r"(highest|maximum|max|largest|lowest|minimum|min|smallest)\s+"
+                r"(.+?)\s+(?:in|for|during)\s+(.+?)\s*$",
+                fast_question,
+                flags=re.IGNORECASE,
+            )
+
+            if who_ranking_match:
+                direction_word = who_ranking_match.group(1).lower()
+                requested_metric = who_ranking_match.group(2).strip()
+                requested_period = who_ranking_match.group(3).strip()
+
+                resolved_group = _resolve_column(
+                    "customer",
+                    dataset,
+                    schema,
+                    [],
+                )
+
+                resolved_metric = _resolve_universal_metric(
+                    requested_metric,
+                    dataset,
+                    schema,
+                    [],
+                )
+
+                period_filters = []
+
+                try:
+                    period_filters = _extract_date_filters(
+                        requested_period,
+                        dataset,
+                        schema,
+                        [],
+                    )
+                except Exception:
+                    period_filters = []
+
+                if resolved_group and resolved_metric:
+                    fast_plan = {
+                        "status": "OK",
+                        "canonical_query": original_question,
+                        "operation": "ranking",
+                        "metric": requested_metric,
+                        "metrics": [requested_metric],
+                        "aggregate_function": "sum",
+                        "group_by": resolved_group,
+                        "filters": period_filters,
+                        "time": None,
+                        "limit": 1,
+                        "direction": (
+                            "asc"
+                            if direction_word in (
+                                "lowest",
+                                "minimum",
+                                "min",
+                                "smallest",
+                            )
+                            else "desc"
+                        ),
+                        "reason": (
+                            "Deterministic natural-language "
+                            "ranking with period filter"
+                        ),
+                    }
+
+        # --------------------------------------------------------
+        # SOLD THE MOST / SOLD THE LEAST
+        # Examples:
+        #   which product sold the most in 2026
+        #   which product sold the least in January 2026
+        # --------------------------------------------------------
+        if fast_plan is None:
+            sold_ranking_match = re.search(
+                r"\b(?:which|what)\s+"
+                r"(product|products|item|items|category|categories)"
+                r"\s+sold\s+the\s+"
+                r"(most|least)"
+                r"(?:\s+(?:in|for|during)\s+(.+?))?\s*$",
+                fast_question,
+                flags=re.IGNORECASE,
+            )
+
+            if sold_ranking_match:
+                requested_entity = sold_ranking_match.group(1).strip()
+                direction_word = sold_ranking_match.group(2).lower()
+                requested_period = (
+                    sold_ranking_match.group(3) or ""
+                ).strip()
+
+                entity_aliases = {
+                    "product": ("product", "item"),
+                    "products": ("product", "item"),
+                    "item": ("item", "product"),
+                    "items": ("item", "product"),
+                    "category": ("category",),
+                    "categories": ("category",),
+                }
+
+                resolved_group = None
+
+                aliases = entity_aliases.get(
+                    _normalize_text(requested_entity)
+                )
+
+                if aliases:
+                    for alias in aliases:
+                        resolved_group = _resolve_column(
+                            alias,
+                            dataset,
+                            schema,
+                            [],
+                        )
+                        if resolved_group:
+                            break
+
+                resolved_metric = _resolve_universal_metric(
+                    "sales",
+                    dataset,
+                    schema,
+                    [],
+                )
+
+                period_filters = []
+
+                if requested_period:
+                    try:
+                        period_filters = _extract_date_filters(
+                            requested_period,
+                            dataset,
+                            schema,
+                            [],
+                        )
+                    except Exception:
+                        period_filters = []
+
+                if resolved_group and resolved_metric:
+                    fast_plan = {
+                        "status": "OK",
+                        "canonical_query": original_question,
+                        "operation": "ranking",
+                        "metric": "sales",
+                        "metrics": ["sales"],
+                        "aggregate_function": "sum",
+                        "group_by": resolved_group,
+                        "filters": period_filters,
+                        "time": None,
+                        "limit": 1,
+                        "direction": (
+                            "asc"
+                            if direction_word == "least"
+                            else "desc"
+                        ),
+                        "reason": (
+                            "Deterministic sold-most/sold-least "
+                            "ranking"
+                        ),
+                    }
+        # --------------------------------------------------------
+        # HIGHEST / LOWEST N ENTITY BY METRIC WITH TIME FILTER
+        # Examples:
+        #   highest 3 customers by GST in Q1 2026
+        #   lowest 5 products by profit in 2025
+        #   highest 10 categories by sales in 2026
+        # --------------------------------------------------------
+        if fast_plan is None:
+            highest_lowest_match = re.search(
+                r"\b(highest|lowest|maximum|minimum|largest|smallest)"
+                r"\s+(\d+)\s+"
+                r"(customers?|clients?|buyers?|parties?|"
+                r"products?|items?|categories?|category)"
+                r"\s+by\s+(.+?)"
+                r"(?:\s+(?:in|for|during)\s+(.+?))?\s*$",
+                fast_question,
+                flags=re.IGNORECASE,
+            )
+
+            if highest_lowest_match:
+                ranking_word = highest_lowest_match.group(1).lower()
+                limit = int(highest_lowest_match.group(2))
+                requested_entity = highest_lowest_match.group(3).strip()
+                requested_metric = highest_lowest_match.group(4).strip()
+                requested_period = (
+                    highest_lowest_match.group(5) or ""
+                ).strip()
+
+                entity_aliases = {
+                    "customer": ("customer", "party", "party name"),
+                    "customers": ("customer", "party", "party name"),
+                    "client": ("customer", "party", "party name"),
+                    "clients": ("customer", "party", "party name"),
+                    "buyer": ("customer", "party", "party name"),
+                    "buyers": ("customer", "party", "party name"),
+                    "party": ("party", "party name", "customer"),
+                    "parties": ("party", "party name", "customer"),
+                    "product": ("product", "item"),
+                    "products": ("product", "item"),
+                    "item": ("item", "product"),
+                    "items": ("item", "product"),
+                    "category": ("category",),
+                    "categories": ("category",),
+                }
+
+                resolved_group = None
+                aliases = entity_aliases.get(
+                    _normalize_text(requested_entity)
+                )
+
+                if aliases:
+                    for alias in aliases:
+                        resolved_group = _resolve_column(
+                            alias,
+                            dataset,
+                            schema,
+                            [],
+                        )
+                        if resolved_group:
+                            break
+
+                resolved_metric = _resolve_universal_metric(
+                    requested_metric,
+                    dataset,
+                    schema,
+                    [],
+                )
+
+                period_filters = []
+
+                if requested_period:
+                    try:
+                        period_filters = _extract_date_filters(
+                            requested_period,
+                            dataset,
+                            schema,
+                            [],
+                        )
+                    except Exception:
+                        period_filters = []
+
+                if resolved_group and resolved_metric:
+                    fast_plan = {
+                        "status": "OK",
+                        "canonical_query": original_question,
+                        "operation": "ranking",
+                        "metric": requested_metric,
+                        "metrics": [requested_metric],
+                        "aggregate_function": "sum",
+                        "group_by": resolved_group,
+                        "filters": period_filters,
+                        "time": None,
+                        "limit": limit,
+                        "direction": (
+                            "asc"
+                            if ranking_word in (
+                                "lowest",
+                                "minimum",
+                                "smallest",
+                            )
+                            else "desc"
+                        ),
+                        "reason": (
+                            "Deterministic highest/lowest N "
+                            "ranking with metric and period"
+                        ),
+                    }
+        # WHICH / WHAT ENTITY HAS HIGHEST / LOWEST METRIC
+        # --------------------------------------------------------
+        if fast_plan is None:
+            ranking_match = re.search(
+                r"\b(?:which|what)\s+(.+?)\s+"
+                r"(?:has|have|with)\s+"
+                r"(highest|maximum|max|largest|lowest|minimum|min|smallest)\s+"
+                r"(.+?)\s*$",
+                fast_question,
+                flags=re.IGNORECASE,
+            )
+
+            if ranking_match:
+                requested_entity = ranking_match.group(1).strip()
+                direction_word = ranking_match.group(2).lower()
+                requested_metric = ranking_match.group(3).strip()
+
+                resolved_group = _resolve_column(
+                    requested_entity,
+                    dataset,
+                    schema,
+                    [],
+                )
+
+                if not resolved_group:
+                    entity_aliases = {
+                        "client": ("customer", "party", "party name"),
+                        "clients": ("customer", "party", "party name"),
+                        "buyer": ("customer", "party", "party name"),
+                        "buyers": ("customer", "party", "party name"),
+                        "customer": ("customer", "party", "party name"),
+                        "customers": ("customer", "party", "party name"),
+                        "party": ("party", "party name", "customer"),
+                        "parties": ("party", "party name", "customer"),
+                        "item": ("item", "product"),
+                        "items": ("item", "product"),
+                    }
+
+                    aliases = entity_aliases.get(
+                        _normalize_text(requested_entity)
+                    )
+
+                    if aliases:
+                        for alias in aliases:
+                            resolved_group = _resolve_column(
+                                alias,
+                                dataset,
+                                schema,
+                    [],
+                            )
+                            if resolved_group:
+                                break
+
+                resolved_metric = _resolve_universal_metric(
+                    requested_metric,
+                    dataset,
+                    schema,
+                    [],
+                )
+
+                if resolved_group and resolved_metric:
+                    fast_plan = {
+                        "status": "OK",
+                        "canonical_query": original_question,
+                        "operation": "ranking",
+                        "metric": requested_metric,
+                        "metrics": [requested_metric],
+                        "aggregate_function": "sum",
+                        "group_by": resolved_group,
+                        "filters": [],
+                        "time": None,
+                        "limit": 1,
+                        "direction": (
+                            "asc"
+                            if direction_word
+                            in (
+                                "lowest",
+                                "minimum",
+                                "min",
+                                "smallest",
+                            )
+                            else "desc"
+                        ),
+                        "reason": "Deterministic semantic ranking fast path",
+                    }
+
+        # --------------------------------------------------------
+        # SIMPLE AGGREGATE
+        # --------------------------------------------------------
+        grouped_query = bool(
+            re.search(
+                r"\b(?:by|per|wise|each)\b",
+                fast_question,
+                flags=re.IGNORECASE,
+            )
+            or re.search(
+                r"\b(?:month|year|quarter)\s+wise\b",
+                fast_question,
+                flags=re.IGNORECASE,
+            )
+        )
+
+        if (
+            fast_plan is None
+            and not grouped_query
+            and not re.search(
+                r"\b(?:highest|lowest|maximum|minimum|max|min|largest|smallest)\s+"
+                r"(?:sales|revenue|turnover|profit|quantity|amount|gst|tax)\s+"
+                r"(?:category|categories|product|products|customer|customers|client|clients)\b",
+                fast_question,
+                flags=re.IGNORECASE,
+            )
+            # Queries such as:
+            #   "sales for Pooja"
+            #   "profit for Pooja Sharma"
+            #   "sales from Pooja"
+            # must reach the planner/filter executor instead of
+            # becoming an unfiltered aggregate.
+            and not re.search(
+                r"\b(?:for|from)\s+[A-Za-z][A-Za-z0-9_-]*"
+                r"(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3}\b",
+                fast_question,
+                flags=re.IGNORECASE,
+            )
+
+        ):
+            fallback_filters = []
+
+            # Resolve entity/categorical filters against actual persisted rows.
+            try:
+                filter_rows = state.get("rows") or []
+
+                if not filter_rows:
+                    dataset_id = dataset.get("id")
+                    if dataset_id is not None:
+                        filter_rows = load_dataset_rows(int(dataset_id))
+
+                fallback_filters = _extract_categorical_filters(
+                    fast_question,
+                    dataset,
+                    schema,
+                    filter_rows,
+                ) or []
+            except Exception:
+                fallback_filters = []
+
+            aggregate_function, aggregate_column = _extract_aggregate(
+                fast_question,
+                dataset,
+                schema,
+                fallback_filters,
+            )
+
+
+            # Final entity-filter resolution before constructing the fast plan.
+            # Always resolve free-form values against the actual uploaded rows.
+            try:
+                fast_filter_rows = state.get("rows") or []
+                if not fast_filter_rows:
+                    fast_dataset_id = dataset.get("id")
+                    if fast_dataset_id is not None:
+                        fast_filter_rows = load_dataset_rows(int(fast_dataset_id))
+
+                resolved_entity_filters = _extract_categorical_filters(
+                    original_question,
+                    dataset,
+                    schema,
+                    fast_filter_rows,
+                ) or []
+
+                fallback_filters = _deduplicate_filters(
+                    (fallback_filters or []) + resolved_entity_filters
+                )
+            except Exception as exc:
+                print("[FAST FILTER RESOLUTION ERROR] =", repr(exc))
+
+            if aggregate_function and aggregate_column:
+                fast_plan = {
+                    "status": "OK",
+                    "canonical_query": original_question,
+                    "operation": "aggregate",
+                    "metric": aggregate_column,
+                    "metrics": [aggregate_column],
+                    "aggregate_function": aggregate_function,
+                    "aggregate_column": aggregate_column,
+                    "group_by": None,
+                    "filters": fallback_filters,
+                    "time": None,
+                    "limit": None,
+                    "direction": None,
+                    "reason": "Deterministic aggregate fast path",
+                }
+
+
+        # Final deterministic entity-filter enrichment before fast-path return.
+        # Resolve free-form values against the actual uploaded dataset.
+        try:
+            final_filter_rows = state.get("rows") or []
+            if not final_filter_rows:
+                final_dataset_id = dataset.get("id")
+                if final_dataset_id is not None:
+                    final_filter_rows = load_dataset_rows(int(final_dataset_id))
+
+            final_entity_filters = _extract_categorical_filters(
+                original_question,
+                dataset,
+                schema,
+                final_filter_rows,
+            ) or []
+
+            if fast_plan is not None and final_entity_filters:
+                fast_plan["filters"] = _deduplicate_filters(
+                    (fast_plan.get("filters") or []) + final_entity_filters
+                )
+        
+        except Exception as exc:
+            print("[FAST FILTER ENRICHMENT ERROR] =", repr(exc))
+    if fast_plan is not None:
+        return {
+            **state,
+            "original_question": original_question,
+            "question": original_question,
+            "query_plan": fast_plan,
+            "error": None,
+        }
+
+    # ============================================================
+    # EXISTING LLM PATH
+    # ============================================================
+    try:
+        response = _dynamic_query_llm.invoke(prompt)
+
+        raw_content = getattr(
+            response,
+            "content",
+            "",
+        )
+
+        if isinstance(raw_content, list):
+            raw_content = "".join(
+                (
+                    part.get("text", "")
+                    if isinstance(part, dict)
+                    else str(part)
+                )
+                for part in raw_content
+            )
+
+        raw_content = str(raw_content).strip()
+
+        # ----------------------------------------------------
+        # Remove accidental markdown JSON fences.
+        # ----------------------------------------------------
+
+        if raw_content.startswith("```"):
+            raw_content = re.sub(
+                r"^```(?:json)?\s*",
+                "",
+                raw_content,
+                flags=re.IGNORECASE,
+            )
+
+            raw_content = re.sub(
+                r"\s*```$",
+                "",
+                raw_content,
+            ).strip()
+
+        import json
+
+        plan = json.loads(raw_content)
+
+    except Exception as exc:
+        # ----------------------------------------------------
+        # Deterministic semantic fallback.
+        #
+        # If the LLM planner is unavailable (for example,
+        # rate-limited), try the existing universal metric
+        # resolver before falling back to the legacy parser.
+        #
+        # The resolver validates every semantic mapping against
+        # the uploaded schema, so this path must never invent a
+        # column or substitute an unrelated numeric field.
+        # ----------------------------------------------------
+
+        # ----------------------------------------------------
+        # GENERIC DETERMINISTIC SEMANTIC FALLBACK
+        #
+        # Decompose common natural-language ranking queries into:
+        #   entity/group + metric + direction + limit
+        #
+        # Example:
+        #   "which client has highest sales?"
+        #       -> group_by = client
+        #       -> metric   = sales
+        #       -> direction = desc
+        #       -> limit = 1
+        #
+        # The actual columns are resolved against the uploaded
+        # schema. The executor performs the calculation.
+        # ----------------------------------------------------
+
+        fallback_question = _normalize_text(
+            original_question
+        ).strip()
+
+        fallback_rows = state.get("rows") or []
+
+        fallback_question = _normalize_text(original_question).strip()
+        fallback_rows = state.get("rows") or []
+        fallback_filters = []
+
+        # Generic temporal aggregate fallback.
+        temporal_aggregate_match = re.search(
+            r"\b(?:latest|current|most recent|recent|previous|prior|last)\s+"
+            r"(?:\d+\s+)?(?:month|months|year|years|quarter|quarters)\b",
+            fallback_question,
+            flags=re.IGNORECASE,
+        )
+
+        if temporal_aggregate_match:
+            temporal_schema = state.get("schema") or []
+
+            # Resolve the metric independently from temporal words.
+            # Example:
+            #   "latest month profit" -> "profit"
+            #   "previous year sales" -> "sales"
+            #   "last quarter GST" -> "GST"
+            metric_question = re.sub(
+                r"\b(?:latest|current|most recent|previous|prior|last)\s+"
+                r"(?:\d+\s+)?(?:month|months|year|years|quarter|quarters)\b",
+                " ",
+                fallback_question,
+                flags=re.IGNORECASE,
+            )
+            metric_question = re.sub(
+                r"\s+",
+                " ",
+                metric_question,
+            ).strip()
+
+            temporal_metric = None
+
+            # Resolve the cleaned metric semantically.
+            # Example: "latest month profit" -> "profit" -> Profit
+            try:
+                temporal_metric = _resolve_universal_metric(
+                    metric_question,
+                    dataset,
+                    temporal_schema,
+                    fallback_rows,
+                )
+            except Exception:
+                temporal_metric = None
+
+            # Generic schema resolver fallback.
+            # This resolves the requested metric against the uploaded
+            # dataset instead of hardcoding a particular column.
+            if not temporal_metric:
+                try:
+                    resolved_column = _resolve_column(
+                        metric_question,
+                        dataset,
+                        temporal_schema,
+                        fallback_rows,
+                    )
+                except Exception:
+                    resolved_column = None
+
+                if resolved_column:
+                    temporal_metric = {
+                        "column": resolved_column,
+                        "label": str(resolved_column),
+                        "requested": metric_question,
+                        "function": "sum",
+                    }
+
+            # The planner runs before load_data, so state["filters"]
+            # may still be empty. Extract temporal filters directly
+            # from the original question here.
+            temporal_filters = state.get("filters") or []
+
+            if not temporal_filters:
+                try:
+                    temporal_filters = _extract_date_filters(
+                        _normalize_query(original_question),
+                        dataset,
+                        temporal_schema,
+                        fallback_rows,
+                    )
+                except Exception:
+                    temporal_filters = []
+
+            if temporal_metric:
+                metric_column = temporal_metric.get("column")
+                metric_label = (
+                    temporal_metric.get("label")
+                    or temporal_metric.get("requested")
+                    or metric_column
+                )
+
+                return {
+                    **state,
+                    "query_plan": {
+                        "status": "OK",
+                        "canonical_query": original_question,
+                        "operation": "aggregate",
+                        "metric": metric_label,
+                        "metrics": [metric_label],
+                        "aggregate_function": "sum",
+                        "aggregate_column": metric_column,
+                        "group_by": None,
+                        "filters": temporal_filters,
+                        "time": None,
+                        "limit": None,
+                        "direction": None,
+                        "reason": "Deterministic semantic temporal aggregate fallback",
+                    },
+                    "filters": temporal_filters,
+                    "question": _normalize_query(original_question),
+                }
+
+    # Generic Top-N / Bottom-N deterministic fallback.
+        top_n_match = re.search(
+            r"\b(top|bottom)\s+(\d+)\s+(.+?)\s+by\s+(.+?)\s*$",
+            fallback_question,
+            flags=re.IGNORECASE,
+        )
+
+        if top_n_match:
+            ranking_direction_text = top_n_match.group(1).lower()
+            ranking_limit = max(1, int(top_n_match.group(2)))
+            requested_group = top_n_match.group(3).strip()
+            metric_text = top_n_match.group(4).strip()
+
+            entity_aliases = {
+                "client": ("customer", "party", "party name"),
+                "clients": ("customer", "party", "party name"),
+                "buyer": ("customer", "party", "party name"),
+                "buyers": ("customer", "party", "party name"),
+                "customer": ("customer", "party", "party name"),
+                "customers": ("customer", "party", "party name"),
+                "party": ("party", "party name", "customer"),
+                "parties": ("party", "party name", "customer"),
+                "item": ("item", "product"),
+                "items": ("item", "product"),
+            }
+
+            group_by = _resolve_column(
+                requested_group,
+                dataset,
+                schema,
+                fallback_rows,
+            )
+
+            if not group_by:
+                for candidate in entity_aliases.get(
+                    requested_group.lower(),
+                    (),
+                ):
+                    group_by = _resolve_column(
+                        candidate,
+                        dataset,
+                        schema,
+                        fallback_rows,
+                    )
+                    if group_by:
+                        break
+
+            resolved_metric = None
+            try:
+                resolved_metric = _resolve_universal_metric(
+                    metric_text,
+                    dataset,
+                    schema,
+                    fallback_rows,
+                )
+            except Exception:
+                resolved_metric = None
+
+            if group_by and resolved_metric:
+                direction = (
+                    "asc"
+                    if ranking_direction_text == "bottom"
+                    else "desc"
+                )
+
+                return {
+                    **state,
+                    "original_question": original_question,
+                    "query_plan": {
+                        "status": "OK",
+                        "canonical_query": original_question,
+                        "operation": "ranking",
+                        "metric": metric_text,
+                        "metrics": [metric_text],
+                        "aggregate_function": resolved_metric.get(
+                            "function",
+                            "sum",
+                        ),
+                        "group_by": group_by,
+                        "filters": [],
+                        "time": None,
+                        "limit": ranking_limit,
+                        "direction": direction,
+                        "reason": (
+                            "Deterministic semantic Top-N fallback"
+                        ),
+                    },
+                    "question": _normalize_query(
+                        original_question
+                    ),
+                }
+
+        ranking_match = re.search(
+            r"\b(?:which|what)\s+"
+            r"(.+?)\s+"
+            r"(?:has|have|with)\s+"
+            r"(highest|maximum|max|largest|lowest|minimum|min|smallest)\s+"
+            r"(.+?)\s*$",
+            fallback_question,
+            flags=re.IGNORECASE,
+        )
+
+        if ranking_match:
+            entity_text = ranking_match.group(1).strip()
+            ranking_word = ranking_match.group(2).strip().lower()
+            metric_text = ranking_match.group(3).strip()
+
+            # Remove trailing question punctuation.
+            metric_text = re.sub(
+                r"[?!.]+$",
+                "",
+                metric_text,
+            ).strip()
+
+            group_by = _resolve_column(
+                entity_text,
+                dataset,
+                schema,
+                fallback_rows,
+            )
+
+            # If the complete entity phrase does not resolve,
+            # try the final semantic token.
+            if not group_by:
+                entity_tokens = entity_text.split()
+                if entity_tokens:
+                    group_by = _resolve_column(
+                        entity_tokens[-1],
+                        dataset,
+                        schema,
+                        fallback_rows,
+                    )
+
+            resolved_metric = None
+            if metric_text:
+                try:
+                    resolved_metric = _resolve_universal_metric(
+                        metric_text,
+                        dataset,
+                        schema,
+                        fallback_rows,
+                    )
+                except Exception:
+                    resolved_metric = None
+
+            if group_by and resolved_metric:
+                direction = (
+                    "asc"
+                    if ranking_word in {
+                        "lowest",
+                        "minimum",
+                        "min",
+                        "smallest",
+                    }
+                    else "desc"
+                )
+
+                # Generic Top-N / Bottom-N ranking.
+                # Examples:
+                #   top 3 clients by sales
+                #   top 5 products by profit
+                #   bottom 3 customers by quantity
+                top_n_match = re.search(
+                    r"\b(top|bottom)\s+(\d+)\b",
+                    _normalize_query(original_question),
+                    flags=re.IGNORECASE,
+                )
+
+                if top_n_match:
+                    ranking_direction = (
+                        "asc"
+                        if top_n_match.group(1).lower() == "bottom"
+                        else "desc"
+                    )
+                    ranking_limit = max(
+                        1,
+                        int(top_n_match.group(2)),
+                    )
+                else:
+                    ranking_direction = direction
+                    ranking_limit = 1
+
+                return {
+                    **state,
+                    "original_question": original_question,
+                    "query_plan": {
+                        "status": "OK",
+                        "canonical_query": original_question,
+                        "operation": "ranking",
+                        "metric": metric_text,
+                        "metrics": [metric_text],
+                        "aggregate_function": resolved_metric.get(
+                            "function",
+                            "sum",
+                        ),
+                        "group_by": group_by,
+                        "filters": [],
+                        "time": None,
+                        "limit": ranking_limit,
+                        "direction": ranking_direction,
+                        "reason": (
+                            "Deterministic semantic ranking fallback"
+                        ),
+                    },
+                    "question": _normalize_query(
+                        original_question
+                    ),
+                }
+
+        # ----------------------------------------------------
+        # Generic semantic metric fallback.
+        # ----------------------------------------------------
+
+        # The normal pipeline may not keep raw rows in state.
+        # Load them only when the deterministic fallback needs
+        # actual data values for entity/value resolution.
+        fallback_rows = state.get("rows") or []
+
+        if not fallback_rows:
+            try:
+                dataset_id = dataset.get("id")
+                if dataset_id is not None:
+                    fallback_rows = load_dataset_rows(int(dataset_id))
+            except Exception:
+                fallback_rows = []
+
+        fallback_metric = _normalize_text(
+            original_question
+        ).strip()
+
+        # ----------------------------------------------------
+        # Separate the requested business metric from a
+        # free-form entity/value filter.
+        #
+        # Examples:
+        #   "Show total sales for Pooja"
+        #       -> metric question: "Show total sales"
+        #
+        #   "profit for Rahul"
+        #       -> metric question: "profit"
+        #
+        #   "Pooja ki sales"
+        #       -> metric question: "sales"
+        #
+        # Entity values are resolved independently from the
+        # actual uploaded rows by fallback_categorical_filters.
+        # ----------------------------------------------------
+        metric_fallback_question = fallback_metric
+
+        metric_fallback_question = re.sub(
+            r"\b(?:for|from|of)\s+"
+            r"[A-Za-z][A-Za-z0-9_-]*"
+            r"(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,4}\b",
+            " ",
+            metric_fallback_question,
+            flags=re.IGNORECASE,
+        )
+
+        metric_fallback_question = re.sub(
+            r"\b\S+\s+(?:ki|ka|ke)\s+"
+            r"(?=(?:sales|revenue|turnover|profit|quantity|qty|"
+            r"amount|gst|tax|billing|business|invoice|invoices)\b)",
+            " ",
+            metric_fallback_question,
+            flags=re.IGNORECASE,
+        )
+
+        metric_fallback_question = re.sub(
+            r"\s+",
+            " ",
+            metric_fallback_question,
+        ).strip()
+
+        resolved_fallback = None
+
+        if metric_fallback_question:
+            try:
+                resolved_fallback = _resolve_universal_metric(
+                    metric_fallback_question,
+                    dataset,
+                    schema,
+                    fallback_rows,
+                )
+            except Exception:
+                resolved_fallback = None
+
+        # Existing deterministic aggregate resolver is the final
+        # metric fallback. It resolves aliases such as:
+        #   total sales -> GrossAmount
+        #   profit      -> Profit
+        #   quantity    -> Qty
+        # without allowing the entity value to affect the metric.
+        if not resolved_fallback:
+            try:
+                fallback_function, fallback_column = _extract_aggregate(
+                    metric_fallback_question,
+                    dataset,
+                    schema,
+                    fallback_rows,
+                )
+
+                if fallback_function and fallback_column:
+                    resolved_fallback = {
+                        "function": fallback_function,
+                        "column": fallback_column,
+                        "label": fallback_column,
+                        "requested": metric_fallback_question,
+                    }
+            except Exception:
+                resolved_fallback = None
+
+        # Resolve free-form entity/value references against the
+        # actual uploaded rows. This keeps partial names such as
+        # "Pooja" data-driven instead of hardcoding names.
+        fallback_categorical_filters = []
+        fallback_numeric_filters = []
+
+        if fallback_rows:
+            try:
+                fallback_categorical_filters = _extract_categorical_filters(
+                    original_question,
+                    dataset,
+                    schema,
+                    fallback_rows,
+                )
+            except Exception:
+                fallback_categorical_filters = []
+
+            try:
+                fallback_numeric_filters = _extract_numeric_filters(
+                    original_question,
+                    dataset,
+                    schema,
+                    fallback_rows,
+                )
+            except Exception:
+                fallback_numeric_filters = []
+
+        fallback_filters = _deduplicate_filters(
+            fallback_numeric_filters
+            + fallback_categorical_filters
+        )
+
+        if resolved_fallback:
+            return {
+                **state,
+                "original_question": original_question,
+                "filters": fallback_filters,
+                "query_plan": {
+                    "status": "OK",
+                    "canonical_query": original_question,
+                    "operation": "aggregate",
+                    "metric": (
+                        resolved_fallback.get("label")
+                        or resolved_fallback.get("column")
+                        or fallback_metric
+                    ),
+                    "metrics": [
+                        (
+                            resolved_fallback.get("label")
+                            or resolved_fallback.get("column")
+                            or fallback_metric
+                        )
+                    ],
+                    "aggregate_column": resolved_fallback.get("column"),
+                    "aggregate_function": resolved_fallback.get(
+                        "function",
+                        "sum",
+                    ),
+                    "group_by": None,
+                    "filters": fallback_filters,
+                    "time": None,
+                    "limit": None,
+                    "direction": None,
+                    "reason": (
+                        "Deterministic semantic fallback: "
+                        + str(exc)
+                    ),
+                },
+                "question": _normalize_query(
+                    original_question
+                ),
+            }
+
+        # No safe semantic metric was found.
+        # Preserve the original deterministic engine.
+        return {
+            **state,
+            "original_question": original_question,
+            "query_plan": {
+                "status": "FALLBACK",
+                "reason": "LLM planner unavailable; deterministic fallback",
+            },
+            "question": _normalize_query(
+                original_question
+            ),
+        }
+
+    if not isinstance(plan, dict):
+        return {
+            **state,
+            "original_question": original_question,
+            "query_plan": {
+                "status": "FALLBACK",
+                "reason": "Planner returned invalid JSON object",
+            },
+            "question": _normalize_query(
+                original_question
+            ),
+        }
+
+    status = str(
+        plan.get("status") or ""
+    ).strip().upper()
+    # --------------------------------------------------------
+    # Normalize structured planner fields.
+    #
+    # These fields are interpretation only. The deterministic
+    # executor remains responsible for actual calculations.
+    # --------------------------------------------------------
+
+    if not isinstance(plan.get("metrics"), list):
+        metric_value = plan.get("metric")
+
+        if isinstance(metric_value, str):
+            plan["metrics"] = [
+                item.strip()
+                for item in re.split(r"\s*,\s*", metric_value)
+                if item.strip()
+            ]
+        elif metric_value:
+            plan["metrics"] = [str(metric_value)]
+        else:
+            plan["metrics"] = []
+
+    if not isinstance(plan.get("filters"), list):
+        plan["filters"] = []
+
+    # --------------------------------------------------------
+    # DETERMINISTIC FILTER ENRICHMENT
+    # Resolve free-form values against actual uploaded rows.
+    # The LLM interprets; Python validates against real data.
+    # --------------------------------------------------------
+
+    filter_rows = state.get("rows") or []
+
+    if not filter_rows:
+        try:
+            dataset_id = dataset.get("id")
+            if dataset_id is not None:
+                filter_rows = load_dataset_rows(int(dataset_id))
+        except Exception:
+            filter_rows = []
+
+    if filter_rows:
+        try:
+            deterministic_categorical_filters = (
+                _extract_categorical_filters(
+                    original_question,
+                    dataset,
+                    schema,
+                    filter_rows,
+                )
+            )
+        except Exception:
+            deterministic_categorical_filters = []
+
+        try:
+            deterministic_numeric_filters = (
+                _extract_numeric_filters(
+                    original_question,
+                    dataset,
+                    schema,
+                    filter_rows,
+                )
+            )
+        except Exception:
+            deterministic_numeric_filters = []
+
+        plan["filters"] = _reconcile_partial_entity_filters(
+            _deduplicate_filters(
+                (plan.get("filters") or [])
+                + deterministic_numeric_filters
+                + deterministic_categorical_filters
+            )
+        )
+
+
+    if "time" not in plan:
+        plan["time"] = None
+
+    # Normalize the requested aggregate function.
+    aggregate_function = plan.get("aggregate_function")
+
+    if aggregate_function is not None:
+        aggregate_function = str(
+            aggregate_function
+        ).strip().lower()
+
+        aggregate_aliases = {
+            "avg": "average",
+            "mean": "average",
+            "maximum": "max",
+            "highest": "max",
+            "largest": "max",
+            "minimum": "min",
+            "lowest": "min",
+            "smallest": "min",
+            "total": "sum",
+        }
+
+        aggregate_function = aggregate_aliases.get(
+            aggregate_function,
+            aggregate_function,
+        )
+
+        if aggregate_function not in {
+            "sum",
+            "average",
+            "max",
+            "min",
+            "median",
+            "count",
+        }:
+            aggregate_function = None
+
+    plan["aggregate_function"] = aggregate_function
+
+
+    if plan.get("limit") is not None:
+        try:
+            plan["limit"] = int(plan["limit"])
+        except (TypeError, ValueError):
+            plan["limit"] = None
+
+    if plan.get("direction") is not None:
+        direction = str(
+            plan.get("direction")
+        ).strip().lower()
+
+        if direction not in {"asc", "desc"}:
+            plan["direction"] = None
+        else:
+            plan["direction"] = direction
+    # --------------------------------------------------------
+    # DATA NOT AVAILABLE
+    # --------------------------------------------------------
+
+    if status == "DATA_NOT_AVAILABLE":
+        # ----------------------------------------------------
+        # Deterministic semantic recovery.
+        #
+        # Before accepting DATA_NOT_AVAILABLE from the planner,
+        # try to resolve grouped ranking queries safely against
+        # the real uploaded schema.
+        # ----------------------------------------------------
+
+        fallback_question = _normalize_text(
+            original_question
+        ).strip()
+
+        fallback_rows = state.get("rows") or []
+        recovered_plan = None
+
+        # Deterministic temporal aggregate fallback.
+        # Reuse the already extracted temporal filters and resolve
+        # the requested metric from the dataset schema.
+        temporal_aggregate_match = re.search(
+            r"\b(?:latest|current|most recent|previous|prior|last)\s+"
+            r"(?:\d+\s+)?(?:month|months|year|years|quarter|quarters)\b",
+            fallback_question,
+            flags=re.IGNORECASE,
+        )
+
+        if temporal_aggregate_match:
+            temporal_metric = _resolve_universal_metric(fallback_question, dataset, state.get("schema") or [], fallback_rows)
+            temporal_filters = state.get("filters") or []
+
+            if temporal_metric and temporal_filters:
+                metric_column = temporal_metric.get("column")
+                metric_label = (
+                    temporal_metric.get("label")
+                    or temporal_metric.get("requested")
+                    or metric_column
+                )
+
+                recovered_plan = {
+                    "status": "OK",
+                    "canonical_query": original_question,
+                    "operation": "aggregate",
+                    "metric": metric_label,
+                    "metrics": [metric_label],
+                    "aggregate_function": "sum",
+                    "aggregate_column": metric_column,
+                    "group_by": None,
+                    "filters": temporal_filters,
+                    "time": None,
+                    "limit": None,
+                    "direction": None,
+                    "reason": "Deterministic semantic temporal aggregate fallback",
+                }
+
+        ranking_match = re.search(
+            r"\b(?:which|what)\s+"
+            r"(.+?)\s+"
+            r"(?:has|have|with)\s+"
+            r"(highest|maximum|max|largest|lowest|minimum|min|smallest)\s+"
+            r"(.+?)\s*$",
+            fallback_question,
+            flags=re.IGNORECASE,
+        )
+
+        if ranking_match:
+            entity_text = ranking_match.group(1).strip()
+            ranking_word = ranking_match.group(2).strip().lower()
+
+            metric_text = re.sub(
+                r"[?!.]+$",
+                "",
+                ranking_match.group(3).strip(),
+            ).strip()
+
+            # Resolve the grouping/entity column using the
+            # existing schema-aware resolver.
+            group_by = _resolve_column(
+                entity_text,
+                dataset,
+                schema,
+                fallback_rows,
+            )
+
+            # Try common semantic aliases only through the
+            # resolver. No source column is hardcoded here.
+            if not group_by:
+                entity_aliases = {
+                    "client": (
+                        "customer",
+                        "party name",
+                        "party",
+                    ),
+                    "customer": (
+                        "customer",
+                        "party name",
+                        "party",
+                    ),
+                    "buyer": (
+                        "customer",
+                        "party name",
+                        "party",
+                    ),
+                    "party": (
+                        "party",
+                        "party name",
+                        "customer",
+                    ),
+                    "product": (
+                        "product",
+                        "item",
+                    ),
+                    "item": (
+                        "item",
+                        "product",
+                    ),
+                    "category": (
+                        "category",
+                    ),
+                    "supplier": (
+                        "supplier",
+                        "vendor",
+                    ),
+                    "vendor": (
+                        "vendor",
+                        "supplier",
+                    ),
+                }
+
+                entity_norm = _normalize_text(
+                    entity_text
+                )
+
+                for alias, candidates in entity_aliases.items():
+                    if not re.search(
+                        rf"\b{re.escape(alias)}s?\b",
+                        entity_norm,
+                        flags=re.IGNORECASE,
+                    ):
+                        continue
+
+                    for candidate in candidates:
+                        group_by = _resolve_column(
+                            candidate,
+                            dataset,
+                            schema,
+                            fallback_rows,
+                        )
+
+                        if group_by:
+                            break
+
+                    if group_by:
+                        break
+
+            # Resolve metric independently against the schema.
+            resolved_metric = None
+
+            if metric_text:
+                try:
+                    resolved_metric = (
+                        _resolve_universal_metric(
+                            metric_text,
+                            dataset,
+                            schema,
+                            fallback_rows,
+                        )
+                    )
+                except Exception:
+                    resolved_metric = None
+
+            if group_by and resolved_metric:
+                direction = (
+                    "asc"
+                    if ranking_word in {
+                        "lowest",
+                        "minimum",
+                        "min",
+                        "smallest",
+                    }
+                    else "desc"
+                )
+
+                recovered_plan = {
+                    **plan,
+                    "status": "OK",
+                    "canonical_query": original_question,
+                    "operation": "ranking",
+                    "metric": metric_text,
+                    "metrics": [metric_text],
+                    "aggregate_function": resolved_metric.get(
+                        "function",
+                        "sum",
+                    ),
+                    "group_by": group_by,
+                    "filters": [],
+                    "time": None,
+                    "limit": 1,
+                    "direction": direction,
+                    "reason": (
+                        "Recovered by deterministic semantic "
+                        "ranking resolver."
+                    ),
+                }
+
+        if recovered_plan is not None:
+            return {
+                **state,
+                "original_question": original_question,
+                "query_plan": recovered_plan,
+                "question": original_question,
+                "error": None,
+            }
+
+        reason = str(
+            plan.get("reason")
+            or "Requested information is not available in the uploaded data."
+        )
+
+        return {
+            **state,
+            "original_question": original_question,
+            "query_plan": plan,
+            "question": original_question,
+            "error": (
+                "Information is not available in the uploaded data."
+            ),
+        }
+
+    canonical_query = str(
+        plan.get("canonical_query")
+        or ""
+    ).strip()
+
+    if not canonical_query:
+        return {
+            **state,
+            "original_question": original_question,
+            "query_plan": {
+                **plan,
+                "status": "FALLBACK",
+            },
+            "question": _normalize_query(
+                original_question
+            ),
+        }
+
+    # --------------------------------------------------------
+    # Schema safety validation.
+    #
+    # We do not blindly trust the LLM.
+    # Any explicitly returned metric/group_by must exist in the
+    # uploaded schema, unless it is a natural business alias.
+    # --------------------------------------------------------
+
+    actual_columns = {
+        _normalize_column(
+            item.get("source_column")
+        )
+        for item in schema
+        if isinstance(item, dict)
+        and item.get("source_column")
+    }
+
+    def _schema_column_exists(
+        value: Any,
+    ) -> bool:
+        if not value:
+            return True
+
+        normalized = _normalize_column(value)
+
+        if not normalized:
+            return True
+
+        if normalized in actual_columns:
+            return True
+
+        metric_prefixes = (
+            "total ",
+            "sum ",
+            "average ",
+            "avg ",
+            "mean ",
+            "maximum ",
+            "max ",
+            "minimum ",
+            "min ",
+            "count ",
+        )
+
+        for prefix in metric_prefixes:
+            if normalized.startswith(prefix):
+                base_column = normalized[len(prefix):].strip()
+
+                if base_column in actual_columns:
+                    return True
+
+                semantic_aliases = {
+                    "sales", "sale", "revenue", "turnover", "billing",
+                    "business value", "business amount", "business done",
+                    "total business", "sales amount", "sales value",
+                    "selling", "selling amount", "selling value",
+                    "earning", "earnings", "gain", "gains",
+                    "profit amount", "profit value", "kamai", "kamaai",
+                    "fayda", "faayda",
+                    "profit", "quantity", "qty", "gst", "total gst",
+                    "cgst", "sgst", "igst", "discount", "discount amount",
+                    "taxable amount", "taxable value", "invoice value",
+                    "invoice amount", "invoice total", "customer",
+                    "customers", "party", "product", "products", "item",
+                    "items", "category", "categories", "supplier",
+                    "employee", "date", "month", "year", "quarter",
+                }
+
+                if base_column in semantic_aliases:
+                    return True
+
+        semantic_terms = {
+            "sales",
+            "sale",
+            "revenue",
+            "turnover",
+            "billing",
+            "business value",
+            "business amount",
+            "business done",
+            "total business",
+            "sales amount",
+            "sales value",
+            "selling",
+            "selling amount",
+            "selling value",
+            "earning",
+            "earnings",
+            "gain",
+            "gains",
+            "profit amount",
+            "profit value",
+            "kamai",
+            "kamaai",
+            "fayda",
+            "faayda",
+            "profit",
+            "quantity",
+            "qty",
+            "gst",
+            "total gst",
+            "cgst",
+            "sgst",
+            "igst",
+            "discount",
+            "discount amount",
+            "taxable amount",
+            "taxable value",
+            "invoice value",
+            "invoice amount",
+            "invoice total",
+            "customer",
+            "customers",
+            "party",
+            "product",
+            "products",
+            "item",
+            "items",
+            "category",
+            "categories",
+            "supplier",
+            "employee",
+            "date",
+            "month",
+            "year",
+            "quarter",
+        }
+
+        semantic_terms.add("unit price")
+        semantic_terms.add("price")
+        semantic_terms.add("cost")
+        semantic_terms.add("gross amount")
+        semantic_terms.add("taxable")
+        semantic_terms.add("units")
+        semantic_terms.add("invoice no")
+        semantic_terms.add("invoice number")
+
+        return normalized in semantic_terms
+
+    metric = plan.get("metric")
+    group_by = plan.get("group_by")
+
+    # ------------------------------------------------------------
+    # Validate multiple metrics independently.
+    #
+    # The planner may return:
+    #     "sales, profit"
+    #
+    # These are two valid business concepts, not one column name.
+    # ------------------------------------------------------------
+    metric_values = []
+
+    if isinstance(metric, str):
+        metric_values = [
+            item.strip()
+            for item in re.split(r"\s*,\s*", metric)
+            if item.strip()
+        ]
+    elif isinstance(metric, list):
+        metric_values = [
+            str(item).strip()
+            for item in metric
+            if str(item).strip()
+        ]
+    elif metric:
+        metric_values = [str(metric).strip()]
+
+    unavailable_metrics = [
+        item
+        for item in metric_values
+        if not _schema_column_exists(item)
+    ]
+
+    if unavailable_metrics:
+        return {
+            **state,
+            "original_question": original_question,
+            "query_plan": {
+                **plan,
+                "status": "DATA_NOT_AVAILABLE",
+                "unavailable_metrics": unavailable_metrics,
+            },
+            "question": original_question,
+            "error": (
+                "Information is not available in the uploaded data."
+            ),
+        }
+
+    if not _schema_column_exists(group_by):
+        return {
+            **state,
+            "original_question": original_question,
+            "query_plan": {
+                **plan,
+                "status": "DATA_NOT_AVAILABLE",
+            },
+            "question": original_question,
+            "error": (
+                "Information is not available in the uploaded data."
+            ),
+        }
+
+    # --------------------------------------------------------
+    # Canonical query becomes the input for the existing
+    # deterministic query engine.
+    # --------------------------------------------------------
+
+    return {
+        **state,
+        "original_question": original_question,
+        "query_plan": plan,
+        "question": canonical_query,
+        "error": None,
+    }
+def _normalize_planner_plan(
+    state: DynamicAgentState,
+) -> DynamicAgentState:
+    """
+    Normalize the structured query plan produced by the universal
+    planner.
+
+    This function does NOT calculate anything.
+
+    It only converts planner output into a predictable structure
+    that the existing deterministic query engine can safely use.
+    """
+
+    plan = state.get("query_plan")
+
+    if not isinstance(plan, dict):
+        return state
+
+    if str(plan.get("status", "")).upper() != "OK":
+        return state
+
+    normalized_plan = dict(plan)
+
+    # --------------------------------------------------------
+    # Normalize metrics
+    # --------------------------------------------------------
+
+    metrics = normalized_plan.get("metrics")
+
+    if not isinstance(metrics, list):
+        metric = normalized_plan.get("metric")
+
+        if isinstance(metric, str):
+            metrics = [
+                item.strip()
+                for item in re.split(
+                    r"\s*,\s*",
+                    metric,
+                )
+                if item.strip()
+            ]
+        elif metric:
+            metrics = [str(metric).strip()]
+        else:
+            metrics = []
+
+    normalized_plan["metrics"] = metrics
+
+    # --------------------------------------------------------
+    # Normalize operation
+    # --------------------------------------------------------
+
+    operation = str(
+        normalized_plan.get("operation") or ""
+    ).strip().lower()
+
+    normalized_plan["operation"] = operation or None
+
+    # --------------------------------------------------------
+    # Normalize limit
+    # --------------------------------------------------------
+
+    limit = normalized_plan.get("limit")
+
+    if limit is not None:
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = None
+
+    normalized_plan["limit"] = limit
+
+    # --------------------------------------------------------
+    # Normalize direction
+    # --------------------------------------------------------
+
+    direction = normalized_plan.get("direction")
+
+    if direction is not None:
+        direction = str(direction).strip().lower()
+
+        if direction not in {
+            "asc",
+            "desc",
+        }:
+            direction = None
+
+    normalized_plan["direction"] = direction
+
+    # --------------------------------------------------------
+    # Normalize filters
+    # --------------------------------------------------------
+
+    filters = normalized_plan.get("filters")
+
+    if not isinstance(filters, list):
+        filters = []
+
+    normalized_plan["filters"] = filters
+
+    # --------------------------------------------------------
+    # Preserve temporal interpretation
+    # --------------------------------------------------------
+
+    if "time" not in normalized_plan:
+        normalized_plan["time"] = None
+
+    # --------------------------------------------------------
+    # Store normalized plan
+    # --------------------------------------------------------
+
+    return {
+        **state,
+        "query_plan": normalized_plan,
+    }   
 
 def _is_detailed_transaction_dataset(
     dataset: Dict[str, Any],
@@ -9583,6 +15602,41 @@ def select_dynamic_dataset(
     date_eligibility_cache = {}
     
     # --------------------------------------------------------
+    # EXPLICIT PERIOD COMPARISON DETECTION
+    #
+    # Do not reject a detailed dataset during the normal
+    # single-period date filter stage when the question asks
+    # for a comparison such as:
+    #
+    #   from January 2024 to July 2025
+    #
+    # The dedicated period-comparison eligibility logic below
+    # will check both requested periods.
+    # --------------------------------------------------------
+
+    explicit_period_comparison = bool(
+        re.search(
+            r"\bfrom\b.*?"
+            r"\b(?:january|february|march|april|may|june|"
+            r"july|august|september|october|november|december|\d{4})\b"
+            r".*?"
+            r"\bto\b.*?"
+            r"\b(?:january|february|march|april|may|june|"
+            r"july|august|september|october|november|december|\d{4})\b",
+            _normalize_text(question),
+            flags=re.IGNORECASE,
+        )
+        or re.search(
+            r"\b(?:january|february|march|april|may|june|"
+            r"july|august|september|october|november|december)\b.*?"
+            r"\b(?:vs|versus|compared\s+with|compared\s+to|against)\b.*?"
+            r"\b(?:january|february|march|april|may|june|"
+            r"july|august|september|october|november|december)\b",
+            _normalize_text(question),
+            flags=re.IGNORECASE,
+        )
+    )
+    # --------------------------------------------------------
     # Temporal ranking query
     #
     # Queries such as:
@@ -9601,7 +15655,7 @@ def select_dynamic_dataset(
             re.IGNORECASE,
         )
         and re.search(
-            r"\b(?:month|monthly|year|yearly|quarter|quarterly)\b",
+            r"\b(?:month|months|monthly|year|years|yearly|quarter|quarters|quarterly)\b",
             question,
             re.IGNORECASE,
         )
@@ -9658,13 +15712,15 @@ def select_dynamic_dataset(
         # requested period.
         # ----------------------------------------------------
 
+        candidate_rows = load_dataset_rows(dataset_id)
+
         date_filters = _extract_date_filters(
             question,
             dataset,
             schema,
-            [],
+            candidate_rows,
         )
-
+            
         if date_filters:
             date_eligibility_cache[dataset_id] = False
 
@@ -9709,8 +15765,10 @@ def select_dynamic_dataset(
                     period_exists
                 )
 
-                if not period_exists:
+                if not period_exists and not explicit_period_comparison:
                     continue
+                
+                
                     if row_matches:
                         period_exists = True
                         break
@@ -9719,7 +15777,7 @@ def select_dynamic_dataset(
                     period_exists
                 )
 
-                if not period_exists:
+                if not period_exists and not explicit_period_comparison :
                     continue
         #
         # If the user explicitly asks for:
@@ -9748,14 +15806,32 @@ def select_dynamic_dataset(
         if group_match:
             requested_group = group_match.group(1).strip()
 
+            # Resolve grouping column from schema/metadata first.
+            # Full dataset rows are loaded only as a fallback when
+            # schema-based resolution cannot identify the column.
             candidate_rows = []
 
-            try:
-                candidate_rows = load_dataset_rows(
-                    dataset_id
+            grouping_column = _resolve_column(
+                requested_group,
+                dataset,
+                schema,
+                [],
+            )
+
+            if not grouping_column:
+                try:
+                    candidate_rows = load_dataset_rows(
+                        dataset_id
+                    )
+                except Exception:
+                    candidate_rows = []
+
+                grouping_column = _resolve_column(
+                    requested_group,
+                    dataset,
+                    schema,
+                    candidate_rows,
                 )
-            except Exception:
-                candidate_rows = []
 
             # ----------------------------------------------------
             # TOP-N RANKING SPECIAL CASE
@@ -9957,6 +16033,16 @@ def select_dynamic_dataset(
             question
         )
 
+        invoice_count_query = bool(
+            re.search(
+                r"\b(?:invoice\s+count|invoice\s+counts|"
+                r"count\s+(?:of\s+)?invoices?|"
+                r"number\s+of\s+invoices?|"
+                r"how\s+many\s+invoices?)\b",
+                normalized_question,
+                flags=re.IGNORECASE,
+            )
+        )
         detailed_query_terms = {
             "product",
             "products",
@@ -10082,6 +16168,78 @@ def select_dynamic_dataset(
                 score += 200
         
         # --------------------------------------------------------
+        # DETAILED TEMPORAL DATASET PREFERENCE
+        #
+        # For year-wise / quarter-wise queries, prefer a large
+        # detailed transaction dataset containing an actual date
+        # column over tiny/manual datasets.
+        # --------------------------------------------------------
+
+        asks_for_year_or_quarter = bool(
+            re.search(
+                r"\b(?:year|years|yearly|annual|year\s+wise|"
+                r"year-wise|quarter|quarters|quarterly|"
+                r"quarter\s+wise|quarter-wise)\b",
+                normalized_question,
+                flags=re.IGNORECASE,
+            )
+        )
+
+        if asks_for_year_or_quarter:
+            candidate_columns = [
+                _normalize_text(
+                    schema_item.get("source_column", "")
+                )
+                for schema_item in schema
+            ]
+
+            candidate_columns = [
+                column
+                for column in candidate_columns
+                if column
+            ]
+
+            has_actual_date_column = any(
+                column in {
+                    "date",
+                    "invoice date",
+                    "invoicedate",
+                    "transaction date",
+                    "transactiondate",
+                    "bill date",
+                    "billdate",
+                    "billing date",
+                    "billingdate",
+                }
+                or column.endswith(" date")
+                for column in candidate_columns
+            )
+
+            try:
+                temporal_row_count = int(
+                    dataset.get("row_count", 0) or 0
+                )
+            except (TypeError, ValueError):
+                temporal_row_count = 0
+
+            if (
+                dataset.get("data_type")
+                in {
+                    "sales",
+                    "purchase",
+                    "expense",
+                    "payment",
+                }
+                and has_actual_date_column
+                and temporal_row_count >= 100
+                and _is_detailed_transaction_dataset(
+                    dataset,
+                    schema,
+                )
+            ):
+                score += 600
+
+        # --------------------------------------------------------
         # SUMMARY / TREND DATASET PREFERENCE
         #
         # Prefer an existing monthly summary dataset only when
@@ -10179,18 +16337,155 @@ def select_dynamic_dataset(
                 for column in candidate_columns
             )
 
-            summary_metric_columns = {
-                "invoices",
-                "taxable value",
-                "gst",
-                "invoice value",
-                "profit",
+            # ------------------------------------------------
+            # Determine which metrics the USER actually asked
+            # for. The summary dataset must contain all of
+            # those metrics before receiving the large bonus.
+            # ------------------------------------------------
+
+            requested_summary_metrics = set()
+
+            if re.search(
+                r"\b(?:invoice\s+count|invoice\s+counts|"
+                r"number\s+of\s+invoices|count\s+of\s+invoices|"
+                r"count\s+invoices|invoices)\b",
+                normalized_question,
+                flags=re.IGNORECASE,
+            ):
+                requested_summary_metrics.add(
+                    "invoices"
+                )
+
+            if re.search(
+                r"\b(?:sales?|revenue|billing|turnover)\b",
+                normalized_question,
+                flags=re.IGNORECASE,
+            ):
+                requested_summary_metrics.add(
+                    "invoice value"
+                )
+
+            if re.search(
+                r"\b(?:taxable|taxable\s+amount|"
+                r"taxable\s+value|taxableamount)\b",
+                normalized_question,
+                flags=re.IGNORECASE,
+            ):
+                requested_summary_metrics.add(
+                    "taxable value"
+                )
+
+            if re.search(
+                r"\b(?:gst|total\s+gst|totalgst)\b",
+                normalized_question,
+                flags=re.IGNORECASE,
+            ):
+                requested_summary_metrics.add(
+                    "gst"
+                )
+
+            if re.search(
+                r"\bprofit\b",
+                normalized_question,
+                flags=re.IGNORECASE,
+            ):
+                requested_summary_metrics.add(
+                    "profit"
+                )
+
+            if re.search(
+                r"\bdiscount\b",
+                normalized_question,
+                flags=re.IGNORECASE,
+            ):
+                requested_summary_metrics.add(
+                    "discount"
+                )
+
+            # ------------------------------------------------
+            # Check whether every requested metric exists in
+            # this dataset.
+            #
+            # Examples:
+            #
+            #   sales + profit
+            #       -> Invoice Value + Profit
+            #
+            #   invoice count + discount
+            #       -> Invoices + Discount
+            #
+            # Dataset 28 has Invoices but NO Discount,
+            # therefore it must NOT receive the +1000 bonus.
+            # ------------------------------------------------
+
+            summary_metric_aliases = {
+                "invoices": {
+                    "invoices",
+                    "invoice count",
+                    "invoice counts",
+                },
+                "invoice value": {
+                    "invoice value",
+                    "invoice total",
+                    "total amount",
+                    "sales amount",
+                    "sale amount",
+                    "revenue",
+                },
+                "taxable value": {
+                    "taxable value",
+                    "taxable amount",
+                    "taxable",
+                },
+                "gst": {
+                    "gst",
+                    "total gst",
+                },
+                "profit": {
+                    "profit",
+                },
+                "discount": {
+                    "discount",
+                    "discount amount",
+                    "discount amt",
+                    "discountamount",
+                },
             }
 
-            summary_metric_matches = sum(
-                1
-                for metric in summary_metric_columns
-                if metric in candidate_columns
+            def _summary_metric_available(
+                metric_name,
+            ):
+                aliases = summary_metric_aliases.get(
+                    metric_name,
+                    {metric_name},
+                )
+
+                for column in candidate_columns:
+                    for alias in aliases:
+                        if (
+                            column == alias
+                            or alias in column
+                        ):
+                            return True
+
+                return False
+
+            requested_metrics_available = all(
+                _summary_metric_available(metric)
+                for metric in requested_summary_metrics
+            )
+
+            # If no specific metric was detected, retain the
+            # original trend-summary behavior.
+            if not requested_summary_metrics:
+                requested_metrics_available = True
+
+            is_month_query = bool(
+                re.search(
+                    r"\b(?:month|months|monthly|month\s+wise|month-wise)\b",
+                    normalized_question,
+                    flags=re.IGNORECASE,
+                )
             )
 
             if (
@@ -10202,7 +16497,9 @@ def select_dynamic_dataset(
                     "payment",
                 }
                 and has_month_column
-                and summary_metric_matches >= 2
+                and requested_metrics_available
+                and not invoice_count_query
+                and is_month_query
             ):
                 score += 1000
 
@@ -10349,15 +16646,6 @@ def select_dynamic_dataset(
                 }
                 and row_count >= 100
             ):
-                candidate_rows = []
-
-                try:
-                    candidate_rows = load_dataset_rows(
-                        dataset_id
-                    )
-                except Exception:
-                    candidate_rows = []
-
                 metric_resolved = False
 
                 metric_phrases = [
@@ -10386,11 +16674,14 @@ def select_dynamic_dataset(
                     ):
                         continue
 
+                    # Resolve from schema first.
+                    # Do NOT load full dataset rows during
+                    # normal dataset selection.
                     resolved_metric_column = _resolve_column(
                         metric_phrase,
                         dataset,
                         schema,
-                        candidate_rows,
+                        [],
                     )
 
                     if resolved_metric_column:
@@ -10405,6 +16696,67 @@ def select_dynamic_dataset(
                     )
 
 
+        # --------------------------------------------------------
+        # STATE SALES RANKING DATASET PREFERENCE
+        #
+        # Examples:
+        #   Which state has the highest sales?
+        #   Which state has the lowest sales?
+        #   Which are the top 3 states by sales?
+        #   Which are the bottom 3 states by sales?
+        #
+        # Prefer a detailed transaction dataset containing
+        # PartyState + InvoiceTotal over a small summary/ledger
+        # dataset containing State + Invoice Value.
+        # --------------------------------------------------------
+
+        state_sales_ranking_query = bool(
+            re.search(
+                r"\b(?:highest|maximum|most|top|lowest|minimum|least|bottom)\b",
+                normalized_question,
+                flags=re.IGNORECASE,
+            )
+            and re.search(
+                r"\b(?:state|states)\b",
+                normalized_question,
+                flags=re.IGNORECASE,
+            )
+            and re.search(
+                r"\b(?:sales?|revenue|billing|turnover)\b",
+                normalized_question,
+                flags=re.IGNORECASE,
+            )
+        )
+
+        if (
+            state_sales_ranking_query
+            and _is_detailed_transaction_dataset(
+                dataset,
+                schema,
+            )
+        ):
+                # Resolve metric columns from schema first.
+                # Loading all rows is only needed as a fallback
+                # when schema-based resolution cannot identify
+                # the requested metric.
+            candidate_rows = []
+
+            state_column = _resolve_column(
+                "PartyState",
+                dataset,
+                schema,
+                candidate_rows,
+            )
+
+            sales_column = _resolve_column(
+                "InvoiceTotal",
+                dataset,
+                schema,
+                candidate_rows,
+            )
+
+            if state_column and sales_column:
+                score += 1000
 
         scored.append(
             (
@@ -10483,16 +16835,58 @@ def select_dynamic_dataset(
 
     if detailed_transaction_datasets:
 
+        normalized_period_question = _normalize_text(question)
+
         date_query_detected = bool(
             re.search(
                 r"\b(?:for|in|during)\b.*?"
                 r"\b(?:\d{4}|january|february|march|april|may|"
                 r"june|july|august|september|october|november|"
                 r"december)\b",
-                _normalize_text(question),
+                normalized_period_question,
                 flags=re.IGNORECASE,
             )
         )
+
+        # Explicit period-comparison queries.
+        #
+        # Examples:
+        #   from January 2024 to July 2025
+        #   from July 2025 to August 2025
+        #   January 2024 vs July 2025
+        #   January 2024 compared with July 2025
+        #
+        # These queries must use a detailed transaction dataset.
+        explicit_period_comparison = bool(
+            re.search(
+                r"\bfrom\b.*?"
+                r"\b(?:january|february|march|april|may|june|"
+                r"july|august|september|october|november|"
+                r"december|\d{4})\b"
+                r".*?"
+                r"\bto\b.*?"
+                r"\b(?:january|february|march|april|may|june|"
+                r"july|august|september|october|november|"
+                r"december|\d{4})\b",
+                normalized_period_question,
+                flags=re.IGNORECASE,
+            )
+            or re.search(
+                r"\b(?:january|february|march|april|may|june|"
+                r"july|august|september|october|november|"
+                r"december)\b.*?"
+                r"\b(?:vs|versus|compared\s+with|compared\s+to|"
+                r"against)\b.*?"
+                r"\b(?:january|february|march|april|may|june|"
+                r"july|august|september|october|november|"
+                r"december)\b",
+                normalized_period_question,
+                flags=re.IGNORECASE,
+            )
+        )
+
+        if explicit_period_comparison:
+            date_query_detected = True
 
         if date_query_detected:
 
@@ -10515,15 +16909,154 @@ def select_dynamic_dataset(
                 except (TypeError, ValueError):
                     continue
 
-                # Reuse the result from the date scan that
-                # already happened during normal dataset
-                # selection.
-                detailed_period_exists = (
-                    date_eligibility_cache.get(
-                        detailed_id,
-                        False,
+                # ------------------------------------------------
+                # PERIOD COMPARISON
+                # ------------------------------------------------
+                #
+                # Do NOT use date_eligibility_cache here.
+                #
+                # _extract_date_filters() represents a normal
+                # single-period query. For:
+                #
+                #   January 2024 -> July 2025
+                #
+                # it extracts only:
+                #
+                #   year=2024 AND month=1
+                #
+                # which incorrectly rejects a dataset that contains
+                # July 2025.
+                #
+                # Instead, let _extract_period_comparison() identify
+                # the two requested periods and check whether the
+                # detailed dataset contains data in at least one of
+                # them.
+                # ------------------------------------------------
+
+                if explicit_period_comparison:
+
+                    try:
+                        detailed_schema = get_dataset_schema(
+                            detailed_id
+                        )
+                    except Exception:
+                        detailed_schema = []
+
+                    try:
+                        detailed_rows = load_dataset_rows(
+                            detailed_id
+                        )
+                    except Exception:
+                        detailed_rows = []
+
+                    try:
+                        period_info = _extract_period_comparison(
+                            question,
+                            detailed_dataset,
+                            detailed_schema,
+                            detailed_rows,
+                        )
+                    except Exception:
+                        period_info = None
+
+                    if period_info:
+
+                        period_1 = period_info.get(
+                            "period_1"
+                        )
+                        period_2 = period_info.get(
+                            "period_2"
+                        )
+                        comparison_date_column = (
+                            period_info.get("column")
+                        )
+
+                        period_1_exists = False
+                        period_2_exists = False
+
+                        if (
+                            comparison_date_column
+                            and detailed_rows
+                            and period_1
+                            and period_2
+                        ):
+
+                            for row in detailed_rows:
+
+                                row_data = (
+                                    row.get("data", row)
+                                    if isinstance(row, dict)
+                                    else {}
+                                )
+
+                                raw_date = row_data.get(
+                                    comparison_date_column
+                                )
+
+                                if raw_date is None:
+                                    continue
+
+                                date_text = str(
+                                    raw_date
+                                ).strip()
+
+                                parsed_row_date = _parse_date(
+                                    raw_date
+                                )
+
+                                if not parsed_row_date:
+                                    continue
+
+                                period_type = period_info.get(
+                                    "period_type",
+                                    "month",
+                                )
+
+                                if period_type == "day":
+                                    row_period = parsed_row_date.strftime(
+                                        "%Y-%m-%d"
+                                    )
+
+                                elif period_type == "year":
+                                    row_period = parsed_row_date.strftime(
+                                        "%Y"
+                                    )
+
+                                else:
+                                    row_period = parsed_row_date.strftime(
+                                        "%Y-%m"
+                                    )
+
+                                if row_period == period_1:
+                                    period_1_exists = True
+
+                                if row_period == period_2:
+                                    period_2_exists = True
+
+                                if (
+                                    period_1_exists
+                                    or period_2_exists
+                                ):
+                                    break
+
+                        detailed_period_exists = (
+                            period_1_exists
+                            or period_2_exists
+                        )
+
+                    else:
+                        detailed_period_exists = False
+
+                else:
+
+                    # Existing behavior for normal single-period
+                    # date queries remains unchanged.
+                    detailed_period_exists = (
+                        date_eligibility_cache.get(
+                            detailed_id,
+                            False,
+                        )
                     )
-                )
 
                 if detailed_period_exists:
                     eligible_detailed_items.append(
@@ -10684,6 +17217,33 @@ def _is_simple_sql_aggregate_query(
     if top_n_match[0]:
         return False, None, None
 
+    # --------------------------------------------------------
+    # Grouped ranking queries must NOT use scalar SQL MAX/MIN.
+    #
+    # Examples:
+    #   which client has highest sales
+    #   which customer has highest profit
+    #   which product has lowest quantity
+    #   which category has maximum revenue
+    #
+    # These queries require grouping by an entity and then
+    # aggregating the requested metric.
+    # --------------------------------------------------------
+
+    grouped_ranking_query = bool(
+        re.search(
+            r"\b(?:which|what)\s+.+?\s+"
+            r"(?:has|have|with)\s+"
+            r"(?:highest|maximum|max|largest|lowest|minimum|min|smallest)\s+"
+            r".+",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if grouped_ranking_query:
+        return False, None, None
+
     # Payment-mode ranking must use grouped SUM(InvoiceTotal),
     # never scalar MAX/MIN on individual invoices.
     payment_mode_ranking = bool(
@@ -10726,7 +17286,30 @@ def _is_simple_sql_aggregate_query(
 
     if numeric_filter_query:
         return False, None, None
+    # --------------------------------------------------------
+    # Relative/ordered month queries must use the date-filter
+    # path instead of the scalar SQL fast path.
+    #
+    # Examples:
+    #   total sales first 3 months
+    #   total sales last 3 months
+    #   total sales previous 3 months
+    # --------------------------------------------------------
 
+    relative_temporal_query = bool(
+        re.search(
+            r"\b(?:first|last|previous|latest)\s+"
+            r"(?:(?:\d+|one|two|three|four|five|six|seven|eight|"
+            r"nine|ten|eleven|twelve)\s+)?"
+            r"(?:available\s+)?"
+            r"(?:day|days|week|weeks|month|months|quarter|quarters|year|years)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if relative_temporal_query:
+        return False, None, None
     # --------------------------------------------------------
     # Must contain a simple aggregate request.
     # --------------------------------------------------------
@@ -10784,7 +17367,63 @@ def _is_simple_sql_aggregate_query(
     ):
         return False, None, None
 
-    # --------------------------------------------------------
+       # --------------------------------------------------------
+        # Relative temporal queries must use the row-based path.
+        #
+        # Examples:
+        #   average sales last 3 months
+        #   total profit last month
+        #   sales previous 2 months
+        #
+        # These queries must use the latest available periods from
+        # the uploaded dataset rather than the scalar SQL fast path.
+        # --------------------------------------------------------
+
+        relative_temporal_query = bool(
+            re.search(
+                r"\b(?:last|previous|latest)\s+"
+                r"(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+)?"
+                r"(?:available\s+)?"
+                r"(?:\d+\s+)?(?:month|months|year|years|quarter|quarters)\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            )
+        )
+
+        if relative_temporal_query:
+            return False, None, None
+
+        # --------------------------------------------------------
+        # Multiple business metrics must use the row-based path.
+        #
+        # Examples:
+        #   average sales and average profit
+        #   sales and GST
+        #   quantity and discount
+        #
+        # A scalar SQL aggregate can return only one metric, so
+        # these queries must reach the multi-aggregate engine.
+        # --------------------------------------------------------
+
+        metric_terms = re.findall(
+            r"\b(?:sales?|selling|revenue|turnover|billing|business|"
+            r"quantity|qty|gst|total\s+gst|cgst|sgst|igst|"
+            r"discount|taxable(?:\s+amount)?|cost|"
+            r"invoice\s+(?:value|amount|total))\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+
+        unique_metric_terms = {
+            _normalize_text(item)
+            for item in metric_terms
+        }
+
+        if len(unique_metric_terms) >= 2:
+            return False, None, None
+
+
+     # --------------------------------------------------------
     # Only use schema-confirmed numeric source columns.
     # --------------------------------------------------------
 
@@ -10837,45 +17476,15 @@ def _is_simple_sql_aggregate_query(
             question_norm,
         )
         and re.search(
-            r"\b(?:customer|customers|product|products|item|items)\b",
+            r"\b(?:customer|customers|product|products|item|items|category|categories|hsn\s+code|hsn\s+codes|state|states)\b",
             question_norm,
         )
     )
 
     if grouped_sales_ranking:
         return False, None, None
-    
-        # --------------------------------------------------------
-    # TEMPORAL RANKING
-    #
-    # Examples:
-    #   Which month has highest sales?
-    #   Which month highest sales are done?
-    #   Which year has maximum revenue?
-    #
-    # These must NOT use scalar SQL MAX/MIN because we need:
-    #   GROUP BY month/year -> SUM(metric) -> highest group
-    # --------------------------------------------------------
-    temporal_ranking = bool(
-        re.search(
-            r"\b(?:highest|maximum|most|top|lowest|minimum|least|bottom)\b",
-            question_norm,
-        )
-        and re.search(
-            r"\b(?:month|monthly|year|yearly|quarter|quarterly)\b",
-            question_norm,
-        )
-        and re.search(
-           r"\b(?:sales?|revenue|billing|turnover|profit|gst|"
-           r"totalgst|total\s+gst|cgst|sgst|igst|"
-           r"quantity|qty|discount|taxable|taxable\s+amount)\b",
-            question_norm,
-        )
-    )
 
-    if temporal_ranking:
-        return False, None, None
-    
+
     # --------------------------------------------------------
     # Time-based ranking must NOT use scalar SQL MAX/MIN.
     #
@@ -10893,16 +17502,18 @@ def _is_simple_sql_aggregate_query(
 
     temporal_ranking = bool(
         re.search(
-            r"\b(?:highest|maximum|most|lowest|minimum|least|bottom|top)\b",
+            r"\b(?:highest|maximum|most|top|lowest|minimum|least|bottom)\b",
             question_norm,
         )
         and re.search(
-            r"\b(?:month|monthly|year|yearly|quarter|quarterly)\b",
+            r"\b(?:month|months|monthly|year|years|yearly|quarter|quarters|quarterly)\b",
             question_norm,
         )
         and re.search(
             r"\b(?:sales?|revenue|billing|turnover|profit|gst|"
-            r"totalgst|total\s+gst|cgst|sgst|igst|quantity|qty)\b",
+            r"totalgst|total\s+gst|cgst|sgst|igst|"
+            r"quantity|qty|discount|taxable|taxable\s+amount|"
+            r"invoice\s+value|invoice\s+amount|invoice\s+total)\b",
             question_norm,
         )
     )
@@ -10958,6 +17569,41 @@ def _is_simple_sql_aggregate_query(
 
 
     # --------------------------------------------------------
+    # Entity/value-filter queries must NOT use scalar SQL.
+    #
+    # Examples:
+    #   Show total sales for Pooja
+    #   Show sales of Pooja Sharma
+    #   Profit for Rahul
+    #   Quantity for product ABC
+    #   Pooja ki sales
+    #
+    # These queries require actual row filtering first.
+    # The Python filter resolver will match the value against
+    # the uploaded dataset and then calculate the aggregate.
+    # --------------------------------------------------------
+
+    entity_filter_query = bool(
+        re.search(
+            r"\b(?:for|from|of)\s+"
+            r"[A-Za-z][A-Za-z0-9_-]*"
+            r"(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,4}\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        or re.search(
+            r"\b\S+\s+(?:ki|ka|ke)\s+"
+            r"(?:sales|revenue|turnover|profit|quantity|qty|"
+            r"amount|gst|tax|billing|business|invoice|invoices)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if entity_filter_query:
+        return False, None, None
+
+    # --------------------------------------------------------
     # Detect aggregate function.
     # --------------------------------------------------------
 
@@ -10980,13 +17626,26 @@ def _is_simple_sql_aggregate_query(
         function = "min"
 
     elif re.search(
-        r"\b(?:sum|total|how\s+much)\b",
+        r"\b(?:sum|total|how\s+much|kitna|kitni|kitne)\b",
         question_norm,
     ):
         function = "sum"
 
     else:
-        return False, None, None
+        implicit_sum_query = bool(
+            re.search(
+                r"\b(?:business\s+value|business\s+amount|"
+                r"business\s+done|sales\s+value|"
+                r"selling\s+value)\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            )
+        )
+
+        if implicit_sum_query:
+            function = "sum"
+        else:
+            return False, None, None
 
     # --------------------------------------------------------
     # Resolve explicit business metrics.
@@ -11133,25 +17792,81 @@ def _is_simple_sql_aggregate_query(
     # --------------------------------------------------------
     # Generic sales / invoice value.
     #
-    # "Show total sales"
-    # "Show average invoice value"
-    # "Show maximum invoice total"
+    # IMPORTANT:
+    #   "sales", "revenue", "billing", "turnover"
+    #   use GrossAmount.
+    #
+    # Explicit invoice-value wording continues to use
+    # InvoiceTotal / Invoice Value.
+    #
+    # Examples:
+    #   Show total sales
+    #       -> GrossAmount
+    #
+    #   Show total revenue
+    #       -> GrossAmount
+    #
+    #   Show total gross amount
+    #       -> GrossAmount
+    #
+    #   Show total invoice value
+    #       -> InvoiceTotal
+    #
+    #   Show total invoice amount
+    #       -> InvoiceTotal
+    #
+    #   Show total invoice total
+    #       -> InvoiceTotal
     # --------------------------------------------------------
 
-    sales_candidates = [
-        "InvoiceTotal",
-        "Invoice Total",
-        "Invoice Value",
-        "Total Amount",
-        "TotalAmount",
-        "Sales Amount",
-        "SalesAmount",
-        "GrossAmount",
-        "Gross Amount",
-        "Amount",
-        "Revenue",
-        "Turnover",
-    ]
+    generic_sales_query = bool(
+        re.search(
+            r"\b(?:sales?|selling|revenue|turnover|billing|"
+            r"business|business\s+value|business\s+amount|"
+            r"sales\s+value|selling\s+value|business\s+done)\b",
+            question_norm,
+        )
+    )
+
+    invoice_value_query = bool(
+        re.search(
+            r"\binvoice\s+(?:value|amount|total)\b",
+            question_norm,
+        )
+    )
+
+    if generic_sales_query:
+        sales_candidates = [
+            "GrossAmount",
+            "Gross Amount",
+            "Sales Amount",
+            "SalesAmount",
+            "Amount",
+            "Revenue",
+            "Turnover",
+            "InvoiceTotal",
+            "Invoice Total",
+            "Invoice Value",
+            "Total Amount",
+            "TotalAmount",
+        ]
+
+    elif invoice_value_query:
+        sales_candidates = [
+            "InvoiceTotal",
+            "Invoice Total",
+            "Invoice Value",
+            "Total Amount",
+            "TotalAmount",
+            "GrossAmount",
+            "Gross Amount",
+            "Sales Amount",
+            "SalesAmount",
+            "Amount",
+        ]
+
+    else:
+        sales_candidates = []
 
     for candidate in sales_candidates:
         candidate_norm = _normalize_text(candidate)
@@ -11161,17 +17876,11 @@ def _is_simple_sql_aggregate_query(
                 _normalize_text(source_column)
                 == candidate_norm
             ):
-                if re.search(
-                    r"\b(?:sales?|revenue|turnover|billing|"
-                    r"invoice\s+(?:value|amount|total))\b",
-                    question_norm,
-                ):
-                    return (
-                        True,
-                        function,
-                        source_column,
-                    )
-
+                return (
+                    True,
+                    function,
+                    source_column,
+                )
     return False, None, None
 # ============================================================
 # NODE 3 - LOAD DATA
@@ -11282,25 +17991,83 @@ def load_dynamic_data(
             )
             # Safely continue to the existing SQL/row path.
             pass
-    try:
-        (
-            sql_fast_path,
-            sql_function,
-            sql_column,
-        ) = _is_simple_sql_aggregate_query(
-            question=question,
-            dataset=dataset,
-            schema=schema,
+    # --------------------------------------------------------
+    # FINAL SQL FAST-PATH SAFETY GATE
+    #
+    # Scalar SQL aggregation cannot safely handle relative
+    # temporal queries or multiple requested metrics.
+    # --------------------------------------------------------
+    _normalized_question = _normalize_text(question)
+
+    # Explicit numeric date/month queries must use the
+    # filtered row-based path, not SQL fast path.
+    _explicit_numeric_date_sql_block = bool(
+        re.search(
+            r"\b(?:20\d{2}\s+(?:0?[1-9]|1[0-2])(?:\s+(?:0?[1-9]|[12]\d|3[01]))?|(?:0?[1-9]|1[0-2])\s+20\d{2}|(?:0?[1-9]|[12]\d|3[01])\s+(?:0?[1-9]|1[0-2])\s+20\d{2})\b",
+            _normalized_question,
+            flags=re.IGNORECASE,
         )
-    except Exception:
+    )
+
+    _relative_temporal_sql_block = bool(
+        re.search(
+            r"\b(?:last|previous|latest)\s+"
+            r"(?:\d+\s+)?(?:available\s+)?"
+            r"(?:\d+\s+)?(?:month|months|year|years|quarter|quarters)\b",
+            question,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    _metric_terms_sql_block = re.findall(
+        r"\b(?:sales?|selling|revenue|turnover|billing|business|"
+        r"quantity|qty|gst|total\s+gst|cgst|sgst|igst|"
+        r"discount|taxable(?:\s+amount)?|cost|"
+        r"invoice\s+(?:value|amount|total))\b",
+        question,
+        flags=re.IGNORECASE,
+    )
+
+    _unique_metric_terms_sql_block = {
+        _normalize_text(item)
+        for item in _metric_terms_sql_block
+    }
+
+    _multiple_metrics_sql_block = (
+        len(_unique_metric_terms_sql_block) >= 2
+    )
+
+    if (
+        _relative_temporal_sql_block
+        or _multiple_metrics_sql_block
+        or _explicit_numeric_date_sql_block
+    ):
         sql_fast_path = False
         sql_function = None
         sql_column = None
-
+    else:
+        try:
+            (
+                sql_fast_path,
+                sql_function,
+                sql_column,
+            ) = _is_simple_sql_aggregate_query(
+                question=question,
+                dataset=dataset,
+                schema=schema,
+            )
+        except Exception:
+            sql_fast_path = False
+            sql_function = None
+            sql_column = None
+    planner_filters_sql_block = (
+        (state.get("query_plan") or {}).get("filters") or []
+    )
     if (
         sql_fast_path
         and sql_function
         and sql_column
+        and not planner_filters_sql_block
     ):
         try:
             aggregate_value = run_sql_aggregate(
@@ -11400,9 +18167,54 @@ def load_dynamic_data(
                 }
             )
 
+    # ========================================================
+    # GENERIC TEMPORAL FILTER EXTRACTION
+    #
+    # This must happen AFTER rows are loaded because relative
+    # periods such as "latest month" and "previous year" are
+    # defined by periods actually available in the dataset.
+    #
+    # The planner may know the metric, but the loaded dataset
+    # is the source of truth for temporal filters.
+    # ========================================================
+
+    _plan_for_filters = state.get("query_plan")
+    existing_filters = list(state.get("filters") or []) + list(
+        (
+            _plan_for_filters.get("filters")
+            if isinstance(_plan_for_filters, dict)
+            else None
+        )
+        or []
+    )
+
+    try:
+        loaded_date_filters = _extract_date_filters(
+            question,
+            dataset,
+            schema,
+            cleaned_rows,
+        )
+    except Exception:
+        loaded_date_filters = []
+
+    combined_filters = _deduplicate_filters(
+        list(existing_filters) + list(loaded_date_filters)
+    )
+
+    updated_query_plan = state.get("query_plan")
+
+    if isinstance(updated_query_plan, dict):
+        updated_query_plan = {
+            **updated_query_plan,
+            "filters": combined_filters,
+        }
+
     return {
         **state,
         "rows": cleaned_rows,
+        "filters": combined_filters,
+        "query_plan": updated_query_plan,
     }
 
 def _extract_top_n(
@@ -11429,7 +18241,25 @@ def _extract_top_n(
     """
 
     question_norm = _normalize_text(question)
+    # 0. latest N / most recent N
+    #
+    # "latest 5 invoices" means the latest available
+    # invoice dates, not the highest invoice values.
+    #
+    # The execution layer handles this as Date DESC.
+    latest_match = re.search(
+        r"\b(?:latest|most\s+recent)\s+(\d+)\s+"
+        r"(?:invoices?|transactions?|records?)\b",
+        question_norm,
+        flags=re.IGNORECASE,
+    )
 
+    if latest_match:
+        return (
+            int(latest_match.group(1)),
+            "desc",
+            "latest",
+        )
     # --------------------------------------------------------
     # 1. "top N" / "bottom N"
     # --------------------------------------------------------
@@ -11554,6 +18384,45 @@ def _extract_top_n(
             ranking_word,
         )
 
+    # --------------------------------------------------------
+    # 5. Temporal ranking without explicit N
+    # --------------------------------------------------------
+    if (
+        re.search(
+            r"\b(?:month|months|monthly|year|years|yearly|quarter|quarters|quarterly)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        and re.search(
+            r"\b(?:highest|maximum|most|top|lowest|minimum|least|bottom)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    ):
+        ranking_match = re.search(
+            r"\b(?:highest|maximum|most|top|lowest|minimum|least|bottom)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+
+        ranking_word = (
+            ranking_match.group(0).lower()
+            if ranking_match
+            else "highest"
+        )
+
+        direction = (
+            "asc"
+            if ranking_word in ("lowest", "minimum", "least", "bottom")
+            else "desc"
+        )
+
+        return (
+            1,
+            direction,
+            ranking_word,
+        )
+
     return (
         None,
         None,
@@ -11567,10 +18436,12 @@ def _extract_top_n(
 def execute_dynamic_query(
     state: DynamicAgentState,
 ) -> DynamicAgentState:
-    question = state.get(
-        "question",
-        "",
-    )
+
+    # Normalize the structured LLM plan before
+    # entering the existing deterministic engine.
+    state = _normalize_planner_plan(state)
+
+    question = state.get("question", "")
     dataset = state.get(
         "dataset",
         {},
@@ -11616,6 +18487,97 @@ def execute_dynamic_query(
         }
         
 
+    # --------------------------------------------------------
+    # UNIVERSAL QUERY PLAN EXECUTION
+    # --------------------------------------------------------
+
+    # Universal executor handles non-temporal generic queries.
+    # Temporal queries continue through the existing deterministic
+    # temporal engine so latest/last/previous periods are resolved
+    # from the uploaded dataset.
+    planner_plan = state.get("query_plan") or {}
+    planner_time = planner_plan.get("time")
+
+    # Relative temporal queries must use the deterministic
+    # date-filter engine because "latest/previous/last"
+    # depends on periods actually available in the dataset.
+    relative_temporal_query = bool(
+        re.search(
+            r"\b(?:latest|current|most recent|recent|previous|prior|last)"
+            r"\s+(?:\d+\s+)?(?:available\s+)?"
+            r"(?:\d+\s+)?(?:month|months|year|years|quarter|quarters)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    planner_operation = (
+        planner_plan.get("operation")
+        if isinstance(planner_plan, dict)
+        else None
+    )
+
+    temporal_aggregate_query = bool(
+        planner_operation == "aggregate"
+        and planner_plan.get("aggregate_function")
+        and (
+            planner_plan.get("metrics")
+            or planner_plan.get("metric")
+        )
+        and (
+            planner_time
+            or relative_temporal_query
+        )
+    )
+    if temporal_aggregate_query:
+        universal_result = _execute_universal_plan(
+            state,
+            dataset,
+            schema,
+            rows,
+        )
+    elif planner_time or relative_temporal_query:
+        universal_result = None
+    else:
+        universal_result = _execute_universal_plan(
+            state,
+            dataset,
+            schema,
+            rows,
+        )
+
+    if universal_result is not None:
+
+        if universal_result.get("status") == "DATA_NOT_AVAILABLE":
+            return {
+                **state,
+                "result": universal_result,
+                "answer": universal_result.get(
+                    "message",
+                    "Data not available in uploaded file/data",
+                ),
+                "error": None,
+            }
+
+        return {
+            **state,
+            "result": universal_result,
+            "rows": universal_result.get("rows", []),
+            "intent": (
+                "group_aggregate"
+                if universal_result.get("operation")
+                in {
+                    "group_aggregate",
+                    "ranking",
+                }
+                else "aggregate"
+            ),
+            "group_by": universal_result.get(
+                "group_by"
+            ),
+            "error": None,
+        }
+
     if not rows:
         return {
             **state,
@@ -11638,21 +18600,10 @@ def execute_dynamic_query(
             question,
             dataset,
             schema,
-            rows,
+            [],
         )
     )
 
-    # --------------------------------------------------------
-    # Parse filters.
-    # --------------------------------------------------------
-
-    numeric_filters = _extract_numeric_filters(
-        question,
-        dataset,
-        schema,
-        rows,
-    )
-    
     # --------------------------------------------------------
     # DISTINCT / UNIQUE VALUE QUERY
     #
@@ -11666,14 +18617,10 @@ def execute_dynamic_query(
     #   Show unique GSTIN values
     # --------------------------------------------------------
 
-    # --------------------------------------------------------
-    # DISTINCT / UNIQUE VALUE QUERY
-    # --------------------------------------------------------
-
     distinct_values_requested = bool(
         re.search(
             r"\b(?:unique|distinct)\b",
-            _normalize_text(question),
+            question_norm,
             flags=re.IGNORECASE,
         )
     )
@@ -11687,22 +18634,30 @@ def execute_dynamic_query(
             question,
             dataset,
             schema,
-            rows,
+                    [],
         )
 
         categorical_filters = _extract_categorical_filters(
             question,
             dataset,
             schema,
-            rows,
+                    [],
         )
+
 
         date_filters = _extract_date_filters(
             question,
             dataset,
             schema,
-            rows,
+                    [],
         )
+
+
+    filters = _deduplicate_filters(
+        numeric_filters
+        + categorical_filters
+        + date_filters
+    )
 
     filters = _deduplicate_filters(
         numeric_filters
@@ -11719,7 +18674,7 @@ def execute_dynamic_query(
         question,
         dataset,
         schema,
-        rows,
+                    [],
     )
     temporal_ranking_query = bool(
         re.search(
@@ -11728,14 +18683,14 @@ def execute_dynamic_query(
             re.IGNORECASE,
         )
         and re.search(
-            r"\b(?:month|monthly|year|yearly|quarter|quarterly)\b",
+            r"\b(?:month|months|monthly|year|years|yearly|quarter|quarters|quarterly)\b",
             question,
             re.IGNORECASE,
         )
         and re.search(
             r"\b(?:sales?|revenue|billing|turnover|profit|gst|"
             r"totalgst|total\s+gst|cgst|sgst|igst|"
-            r"quantity|qty|discount|taxable|taxable\s+amount)\b",
+            r"quantity|qty|discount|taxable|taxable\s+amount|invoice\s+(?:value|amount|total)|invoicevalue|invoiceamount|invoicetotal)\b",
             question,
             re.IGNORECASE,
         )
@@ -11745,7 +18700,7 @@ def execute_dynamic_query(
         question,
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     # Temporal grouping takes priority over normal grouping.
@@ -11759,16 +18714,274 @@ def execute_dynamic_query(
     # Keep the REAL source date column in group_by.
     if time_grouping:
         group_by = time_grouping["column"]
+        
+    # --------------------------------------------------------
+    # FALLBACK TIME GROUPING FOR IMPLICIT MULTI-METRIC QUERIES
+    #
+    # Examples:
+    #   Show invoice count and discount year wise
+    #   Show sales and profit quarter wise
+    #   Show quantity and sales month wise
+    #
+    # If the normal time-grouping detector did not resolve the
+    # period, resolve the actual date column directly.
+    # --------------------------------------------------------
 
+    if (
+        not time_grouping
+        and not group_by
+        and re.search(
+            r"\b(?:year|yearly|month|monthly|quarter|quarterly|"
+            r"day|daily)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        and re.search(
+            r"\b(?:wise|by|per|each)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    ):
+        fallback_date_column = None
+
+        for candidate in (
+            "Date",
+            "Transaction Date",
+            "TransactionDate",
+            "Bill Date",
+            "BillDate",
+            "Invoice Date",
+            "InvoiceDate",
+        ):
+            fallback_date_column = _resolve_column(
+                candidate,
+                dataset,
+                schema,
+                    [],
+            )
+
+            if fallback_date_column:
+                break
+
+        if fallback_date_column:
+            group_by = fallback_date_column
+
+            if re.search(
+                r"\b(?:year|yearly)\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            ):
+                fallback_period = "year"
+
+            elif re.search(
+                r"\b(?:quarter|quarterly)\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            ):
+                fallback_period = "quarter"
+
+            elif re.search(
+                r"\b(?:month|monthly)\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            ):
+                fallback_period = "month"
+
+            else:
+                fallback_period = "day"
+
+            time_grouping = {
+                "column": fallback_date_column,
+                "period": fallback_period,
+            }
+
+    # --------------------------------------------------------
+    # RELATIVE SINGLE-PERIOD QUERY OVERRIDE
+    # --------------------------------------------------------
+    # latest/last/previous month means one available month,
+    # not a month-wise grouped result.
+
+    relative_single_month_query = bool(
+        re.search(
+            r"\b(?:latest|last|previous)\s+(?:available\s+)?month\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        and not re.search(
+            r"\b(?:by|wise|per|each)\s+month\b"
+            r"|\bmonth\s+wise\b"
+            r"|\bmonthly\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if relative_single_month_query:
+        group_by = None
+        time_grouping = None
+   
+    relative_multi_month_query = bool(
+        re.search(
+            r"\b(?:last|previous|prior)\s+\d+\s+(?:available\s+)?months?\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        and not re.search(
+            r"\b(?:by|wise|per|each)\s+month\b"
+            r"|\bmonth\s+wise\b"
+            r"|\bmonthly\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if relative_multi_month_query:
+        group_by = None
+        time_grouping = None
+        requested_columns = []
+    # --------------------------------------------------------
+    # RELATIVE SINGLE-PERIOD QUERY OVERRIDE
+    #
+    # latest/last/previous year or quarter means one
+    # available period, not a grouped result.
+    #
+    # Examples:
+    #   latest year profit
+    #   previous year sales
+    #   latest quarter GST
+    # --------------------------------------------------------
+
+    relative_single_period_query = bool(
+        re.search(
+            r"\b(?:latest|current|most recent|recent|previous|prior|last)"
+            r"\s+(?:available\s+)?"
+            r"(?:year|years|quarter|quarters)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        and not re.search(
+            r"\b(?:by|wise|per|each)\s+"
+            r"(?:year|years|quarter|quarters)\b"
+            r"|\b(?:year|years|quarter|quarters)\s+wise\b"
+            r"|\b(?:yearly|quarterly)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if relative_single_period_query:
+        group_by = None
+        time_grouping = None
+        
     aggregate_function, aggregate_column = (
         _extract_aggregate(
             question,
             dataset,
             schema,
-            rows,
+                    [],
         )
     )
-   # --------------------------------------------------------
+    
+    # --------------------------------------------------------
+    # HONOR VALID UNIVERSAL PLANNER AGGREGATE
+    #
+    # The planner has already resolved semantic queries such as:
+    #   latest month profit
+    #   previous year sales
+    #   latest quarter GST
+    #
+    # _extract_aggregate() may not recognize the temporal wording
+    # itself, so preserve the planner's deterministic aggregate
+    # when it is already valid.
+    # --------------------------------------------------------
+
+    planner_plan = state.get("query_plan") or {}
+
+    if (
+        isinstance(planner_plan, dict)
+        and planner_plan.get("status") == "OK"
+        and planner_plan.get("operation") == "aggregate"
+        and planner_plan.get("aggregate_function")
+        and planner_plan.get("aggregate_column")
+    ):
+        aggregate_function = planner_plan.get(
+            "aggregate_function"
+        )
+        aggregate_column = planner_plan.get(
+            "aggregate_column"
+        )
+    
+    # --------------------------------------------------------
+    # IMPLICIT MULTI-METRIC GROUPED QUERY
+    #
+    # Examples:
+    #   Show sales and profit quarter wise
+    #   Show invoice count and discount year wise
+    #   Show quantity and sales product wise
+    #
+    # These queries imply SUM/COUNT even though they do not
+    # explicitly say "total" or "sum".
+    # --------------------------------------------------------
+
+    implicit_group_metrics = []
+
+    if group_by:
+        implicit_group_metrics = (
+            _extract_implicit_group_metrics(
+                question,
+                dataset,
+                schema,
+                    [],
+            )
+        )
+
+    
+ 
+    # --------------------------------------------------------
+    # Temporal sales ranking metric
+    #
+    # Generic sales/revenue/month ranking must use GrossAmount.
+    # Explicit invoice value/amount/total must remain InvoiceTotal.
+    #
+    # Examples:
+    #   highest sales month
+    #       -> GrossAmount
+    #
+    #   lowest sales month
+    #       -> GrossAmount
+    #
+    #   highest invoice value month
+    #       -> InvoiceTotal
+    # --------------------------------------------------------
+
+    if (
+        temporal_ranking_query
+        and re.search(
+            r"\b(?:sales?|revenue|billing|turnover)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        and not re.search(
+            r"\binvoice\s+(?:value|amount|total)\b"
+            r"|\binvoicevalue\b"
+            r"|\binvoiceamount\b"
+            r"|\binvoicetotal\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    ):
+        gross_amount_column = _resolve_column(
+            "GrossAmount",
+            dataset,
+            schema,
+                    [],
+        )
+
+        if gross_amount_column:
+            aggregate_function = "sum"
+            aggregate_column = gross_amount_column
+    
+    # --------------------------------------------------------
     # InvoiceNo identifier protection
     #
     # Prevent "No" inside "InvoiceNo" from becoming:
@@ -11800,19 +19013,10 @@ def execute_dynamic_query(
 
     invoice_number_query = bool(
         invoice_identifier_requested
-        and (
-            re.search(
-                r"\btotal\s+(?:invoice\s*no|invoiceno|invoice\s+number)\b",
-                question_norm,
-                flags=re.IGNORECASE,
-            )
-            or re.search(
-                r"\b(?:show|give|list|display|return|fetch|provide)\b"
-                r".*?\b(?:all|every)\b"
-                r".*?\b(?:invoice\s*no|invoiceno|invoice\s+number)\b",
-                question_norm,
-                flags=re.IGNORECASE,
-            )
+        and re.search(
+            r"\b(?:invoice\s*no|invoiceno|invoice\s+number)\b",
+            question_norm,
+            flags=re.IGNORECASE,
         )
     )
 
@@ -11911,17 +19115,66 @@ def execute_dynamic_query(
     # --------------------------------------------------------
 
     raw_rows_requested = bool(
+        not top_n
+        and (
+            re.search(
+                r"\b(?:show|give|list|display|return|fetch|provide|export)\b"
+                r".*?\b(?:all|every)\b"
+                r".*?\b(?:rows?|records?|transactions?|"
+                r"invoices?(?!\s+(?:count|counts)))\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            )
+            or
+            re.search(
+                r"\b(?:show|give|list|display|return|fetch|provide|export)\b"
+                r".*?\b(?:rows?|records?|transactions?|"
+                r"invoices?(?!\s+(?:count|counts)))\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            )
+        )
+    )
+    
+    # --------------------------------------------------------
+    # INVOICE COUNT IS AN AGGREGATE QUERY, NOT RAW ROW REQUEST
+    # --------------------------------------------------------
+
+    invoice_count_query = bool(
         re.search(
-            r"\b(?:show|give|list|display|return|fetch|provide|export)\b"
-            r".*?\b(?:all|every)\b"
-            r".*?\b(?:rows?|records?|transactions?|invoices?)\b",
+            r"\b(?:invoice\s+count|invoice\s+counts|"
+            r"count\s+(?:of\s+)?invoices?|"
+            r"number\s+of\s+invoices?|"
+            r"how\s+many\s+invoices?)\b",
             question_norm,
             flags=re.IGNORECASE,
         )
-        or
-        re.search(
-            r"\b(?:show|give|list|display|return|fetch|provide|export)\b"
-            r".*?\b(?:rows?|records?|transactions?|invoices?)\b",
+    )
+
+    if invoice_count_query:
+        raw_rows_requested = False
+
+    # --------------------------------------------------------
+    # EXPLICIT COLUMN PROJECTION IS ALSO A DETAIL REQUEST
+    #
+    # Example:
+    #   Show InvoiceNo and Date for Pooja Sharma
+    #
+    # Return at most 20 rows by default.
+    # --------------------------------------------------------
+
+    projection_rows_requested = bool(
+        not top_n
+        and not re.search(
+            r"\b(?:all|every)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        and re.search(
+            r"\b(?:show|display|list|give|get|fetch|return)\b"
+            r".*?\b(?:invoice(?:s)?|invoiceno|invoice\s*no|date|partyname|"
+            r"product|category|quantity|qty|profit|grossamount|"
+            r"invoicetotal|paymentmode|record(?:s)?|transaction(?:s)?|row(?:s)?)\b",
             question_norm,
             flags=re.IGNORECASE,
         )
@@ -11963,9 +19216,53 @@ def execute_dynamic_query(
                 0,
             )
 
-    if raw_rows_requested:
+    if raw_rows_requested or projection_rows_requested:
         aggregate_function = None
         aggregate_column = None
+        group_by = None
+        time_grouping = None
+
+    # --------------------------------------------------------
+    # EXPLICIT TOP-N INVOICE ROW RANKING PRIORITY
+    #
+    # Examples:
+    #   Show top 5 invoices by invoice value
+    #   Show bottom 5 invoices by invoice value
+    #   Show top 10 invoices by profit
+    #   Show highest 5 invoices by sales
+    #
+    # Invoice is an individual row/entity here.
+    # It must NOT become:
+    #
+    #   GROUP BY InvoiceNo
+    #
+    # because TOP-N individual ranking must sort all
+    # matching invoice rows and then apply the limit.
+    # --------------------------------------------------------
+
+    top_n_invoice_row_priority = bool(
+        top_n
+        and re.search(
+            r"\b(?:invoice|invoices|transaction|transactions)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        and re.search(
+            r"\b(?:invoice\s+(?:value|amount|total)|"
+            r"invoicevalue|invoiceamount|invoicetotal|"
+            r"sales?|revenue|billing|turnover|"
+            r"profit|discount|quantity|qty|"
+            r"gst|total\s+gst|totalgst|"
+            r"cgst|sgst|igst|"
+            r"taxable|taxable\s+amount|taxableamount|"
+            r"cost|gross|gross\s+amount|grossamount|"
+            r"unit\s+price|unitprice|price)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if top_n_invoice_row_priority:
         group_by = None
         time_grouping = None
 
@@ -12174,10 +19471,13 @@ def execute_dynamic_query(
     # Normal aggregate/group-by queries are unchanged.
     # --------------------------------------------------------
 
-    if raw_rows_requested and requested_row_count is not None:
-        filtered_rows = filtered_rows[
-            :requested_row_count
-        ]
+    original_filtered_row_count = len(filtered_rows)
+
+    if raw_rows_requested or projection_rows_requested:
+        if requested_row_count is not None:
+            filtered_rows = filtered_rows[:requested_row_count]
+        else:
+            filtered_rows = filtered_rows[:20]
     # --------------------------------------------------------
     # Explicit Top-N row ranking.
     #
@@ -12212,7 +19512,7 @@ def execute_dynamic_query(
         question,
         dataset,
         schema,
-        rows,
+                    [],
     )
     
         # --------------------------------------------------------
@@ -12370,7 +19670,7 @@ def execute_dynamic_query(
         question,
         dataset,
         schema,
-        rows,
+                    [],
     )
 
     if period_comparison:
@@ -12390,10 +19690,16 @@ def execute_dynamic_query(
             if not parsed_date:
                 continue
 
-            if period_type == "month":
+            if period_type == "day":
+                row_period = parsed_date.strftime(
+                    "%Y-%m-%d"
+                )
+
+            elif period_type == "month":
                 row_period = parsed_date.strftime(
                     "%Y-%m"
                 )
+
             else:
                 row_period = parsed_date.strftime(
                     "%Y"
@@ -12406,22 +19712,42 @@ def execute_dynamic_query(
                 period_2_rows.append(row)
 
         # ----------------------------------------------------
-        # Resolve numeric sales/amount column.
+        # Resolve the requested comparison metric.
         # ----------------------------------------------------
 
-        comparison_column_value = _resolve_column(
+        comparison_metric_key = period_comparison.get(
+            "metric_key",
             "sales",
-            dataset,
-            schema,
-            rows,
         )
 
+        comparison_metric_label = period_comparison.get(
+            "metric_label",
+            "Sales",
+        )
+
+        comparison_column_value = _resolve_column(
+            comparison_metric_key,
+            dataset,
+            schema,
+                    [],
+        )
+
+        # Sales fallback
+        if not comparison_column_value:
+            comparison_column_value = _resolve_column(
+                "sales",
+                dataset,
+                schema,
+                    [],
+            )
+
+        # Final fallback
         if not comparison_column_value:
             comparison_column_value = _resolve_column(
                 "amount",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         def _period_total(comparison_rows):
@@ -12508,6 +19834,8 @@ def execute_dynamic_query(
             "operation": "period_comparison",
             "comparison_column": comparison_column,
             "period_type": period_type,
+            "metric_key": comparison_metric_key,
+            "metric_label": comparison_metric_label,
             "period_1": period_1,
             "period_2": period_2,
             "value_1": (
@@ -12527,7 +19855,7 @@ def execute_dynamic_query(
             "rows": [
                 {
                     "Period": period_1,
-                    "Sales": (
+                    comparison_metric_label: (
                         period_1_total
                         if period_1_has_data
                         else None
@@ -12535,7 +19863,7 @@ def execute_dynamic_query(
                 },
                 {
                     "Period": period_2,
-                    "Sales": (
+                    comparison_metric_label: (
                         period_2_total
                         if period_2_has_data
                         else None
@@ -12690,7 +20018,7 @@ def execute_dynamic_query(
             "rows": filtered_rows,
             "count": len(filtered_rows),
             "source_rows": len(rows),
-            "filtered_rows": len(filtered_rows),
+            "filtered_rows": original_filtered_row_count,
         }
 
         return {
@@ -12720,6 +20048,190 @@ def execute_dynamic_query(
     # Never use MAX/MIN on individual InvoiceTotal rows.
     # --------------------------------------------------------
 
+    # --------------------------------------------------------
+    # TEMPORAL TOP-N RANKING
+    # --------------------------------------------------------
+    #
+    # Examples:
+    #   What are the top 3 sales months?
+    #   What are the bottom 3 sales months?
+    #   What are the top 3 invoice value months?
+    #   What are the bottom 3 invoice value months?
+    #
+    # Aggregate by time period first, then rank the periods.
+    # Do NOT rank individual invoice rows.
+    # --------------------------------------------------------
+
+    temporal_top_n_query = bool(
+        time_grouping
+        and top_n
+        and re.search(
+            r"\b(?:month|months|monthly|year|years|yearly|quarter|quarters|quarterly)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        and re.search(
+            r"\b(?:highest|maximum|most|top|lowest|minimum|least|bottom)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        and re.search(
+            r"\b(?:sales?|revenue|billing|turnover|profit|gst|"
+            r"totalgst|total\s+gst|cgst|sgst|igst|quantity|qty|"
+            r"discount|taxable|taxable\s+amount|"
+            r"invoice\s+(?:value|amount|total)|"
+            r"invoicevalue|invoiceamount|invoicetotal)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if temporal_top_n_query:
+
+        temporal_group_column = time_grouping["column"]
+        temporal_period = time_grouping.get("period")
+
+        # Explicit invoice value -> InvoiceTotal.
+        if re.search(
+            r"\binvoice\s+(?:value|amount|total)\b"
+            r"|\binvoicevalue\b"
+            r"|\binvoiceamount\b"
+            r"|\binvoicetotal\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        ):
+            temporal_metric_column = _resolve_column(
+                "InvoiceTotal",
+                dataset,
+                schema,
+                filtered_rows,
+            )
+
+        elif re.search(
+            r"\bprofit\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        ):
+            temporal_metric_column = _resolve_column(
+                "Profit",
+                dataset,
+                schema,
+                filtered_rows,
+            )
+
+        elif re.search(
+            r"\b(?:total\s+gst|totalgst|gst)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        ):
+            temporal_metric_column = _resolve_column(
+                "TotalGST",
+                dataset,
+                schema,
+                filtered_rows,
+            )
+
+        elif re.search(
+            r"\bdiscount\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        ):
+            temporal_metric_column = _resolve_column(
+                "DiscountAmt",
+                dataset,
+                schema,
+                filtered_rows,
+            )
+
+        elif re.search(
+            r"\b(?:taxable|taxable\s+amount)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        ):
+            temporal_metric_column = _resolve_column(
+                "TaxableAmount",
+                dataset,
+                schema,
+                filtered_rows,
+            )
+
+        elif re.search(
+            r"\b(?:quantity|qty)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        ):
+            temporal_metric_column = _resolve_column(
+                "Qty",
+                dataset,
+                schema,
+                filtered_rows,
+            )
+
+        else:
+            # Generic sales/revenue -> GrossAmount.
+            temporal_metric_column = _resolve_column(
+                "GrossAmount",
+                dataset,
+                schema,
+                filtered_rows,
+            )
+
+        if temporal_metric_column:
+
+            temporal_grouped = _group_aggregate(
+                filtered_rows,
+                temporal_group_column,
+                "sum",
+                temporal_metric_column,
+                time_period=temporal_period,
+            )
+
+            def _temporal_ranking_value(row):
+                if not isinstance(row, dict):
+                    return 0.0
+
+                for key, value in row.items():
+                    if key == temporal_group_column:
+                        continue
+
+                    numeric_value = _to_number(value)
+
+                    if numeric_value is not None:
+                        return numeric_value
+
+                return 0.0
+
+            temporal_grouped.sort(
+                key=_temporal_ranking_value,
+                reverse=(top_direction != "asc"),
+            )
+
+            temporal_grouped = temporal_grouped[:top_n]
+
+            result = {
+                "operation": "group_aggregate",
+                "group_by": temporal_group_column,
+                "aggregate_function": "sum",
+                "aggregate_column": temporal_metric_column,
+                "time_period": temporal_period,
+                "rows": temporal_grouped,
+                "count": len(temporal_grouped),
+                "source_rows": len(rows),
+                "filtered_rows": len(filtered_rows),
+            }
+
+            return {
+                **state,
+                "intent": "group_aggregate",
+                "requested_columns": requested_columns,
+                "unavailable_columns": unavailable_columns,
+                "filters": filters,
+                "group_by": temporal_group_column,
+                "aggregate_function": "sum",
+                "aggregate_column": temporal_metric_column,
+                "rows": temporal_grouped,
+                "result": result,
+            }
     payment_mode_sales_ranking = bool(
         re.search(
             r"\b(?:payment\s+modes?|payment\s+methods?)\b",
@@ -12877,19 +20389,19 @@ def execute_dynamic_query(
 
     customer_product_sales_ranking = bool(
         re.search(
-            r"\b(?:highest|maximum|most|lowest|minimum|least|bottom)\b",
+            r"\b(?:highest|maximum|top|most|lowest|minimum|least|bottom)\b",
             question_norm,
         )
         and re.search(
-            r"\b(?:sales?|revenue|billing|turnover|taxable|taxable\s+amount|taxableamount|cost|gross|gross\s+amount|grossamount|unit\s+price|unitprice|price|quantity|qty|discount)\b",
+            r"\b(?:sales?|revenue|billing|turnover|taxable|taxable\s+amount|taxableamount|cost|gross|gross\s+amount|grossamount|unit\s+price|unitprice|price|quantity|qty|discount|invoice\s+(?:value|amount|total)|invoicevalue|invoiceamount|invoicetotal)\b",
             question_norm,
         )
         and re.search(
             r"\b(?:customer|customers|product|products|item|items|"
-            r"payment\s+modes?|payment\s+methods?)\b",
+            r"category|categories|payment\s+modes?|payment\s+methods?|"
+            r"hsn\s+code|hsn\s+codes|state|states)\b",
             question_norm,
         )
-        and not top_n
     )
 
     if customer_product_sales_ranking:
@@ -12923,6 +20435,26 @@ def execute_dynamic_query(
                 schema,
                 filtered_rows,
             )
+
+        elif re.search(
+            r"\b(?:category|categories)\b",
+            question_norm,
+        ):
+            group_by = _resolve_column(
+                "category",
+                dataset,
+                schema,
+                filtered_rows,
+            )
+
+            if not group_by:
+                group_by = _resolve_column(
+                    "Category",
+                    dataset,
+                    schema,
+                    filtered_rows,
+                )
+
         elif re.search(
             r"\b(?:payment\s+modes?|payment\s+methods?)\b",
             question_norm,
@@ -12937,6 +20469,44 @@ def execute_dynamic_query(
             if not group_by:
                 group_by = _resolve_column(
                     "payment mode",
+                    dataset,
+                    schema,
+                    filtered_rows,
+                )
+                
+        elif re.search(
+            r"\b(?:hsn\s+code|hsn\s+codes)\b",
+            question_norm,
+        ):
+            group_by = _resolve_column(
+                "HSN_Code",
+                dataset,
+                schema,
+                filtered_rows,
+            )
+
+            if not group_by:
+                group_by = _resolve_column(
+                    "hsn code",
+                    dataset,
+                    schema,
+                    filtered_rows,
+                )
+
+        elif re.search(
+            r"\b(?:state|states)\b",
+            question_norm,
+        ):
+            group_by = _resolve_column(
+                "PartyState",
+                dataset,
+                schema,
+                filtered_rows,
+            )
+
+            if not group_by:
+                group_by = _resolve_column(
+                    "state",
                     dataset,
                     schema,
                     filtered_rows,
@@ -12959,63 +20529,63 @@ def execute_dynamic_query(
 
         requested_metric_map = [
             (
-                r"\\b(?:unit\\s+price|unitprice|price)\\b",
+                r"\b(?:unit\s+price|unitprice|price)\b",
                 "UnitPrice",
                 "max",
             ),
             (
-                r"\\b(?:taxable\\s+amount|taxableamount|taxable)\\b",
+                r"\b(?:taxable\s+amount|taxableamount|taxable)\b",
                 "TaxableAmount",
                 "sum",
             ),
             (
-                r"\\bcost\\b",
+                r"\bcost\b",
                 "Cost",
                 "sum",
             ),
             (
-                r"\\b(?:gross\\s+amount|grossamount|gross)\\b",
+                r"\b(?:gross\s+amount|grossamount|gross)\b",
                 "GrossAmount",
                 "sum",
             ),
             (
-                r"\\b(?:quantity|qty)\\b",
+                r"\b(?:quantity|qty)\b",
                 "Qty",
                 "sum",
             ),
             (
-                r"\\bdiscount\\b",
+                r"\bdiscount\b",
                 "DiscountAmt",
                 "sum",
             ),
             (
-                r"\\bcgst\\b",
+                r"\bcgst\b",
                 "CGST",
                 "sum",
             ),
             (
-                r"\\bsgst\\b",
+                r"\bsgst\b",
                 "SGST",
                 "sum",
             ),
             (
-                r"\\bigst\\b",
+                r"\bigst\b",
                 "IGST",
                 "sum",
             ),
             (
-                r"\\b(?:total\\s+gst|totalgst|gst)\\b",
+                r"\b(?:total\s+gst|totalgst|gst)\b",
                 "TotalGST",
                 "sum",
             ),
             (
-                r"\\bprofit\\b",
+                r"\bprofit\b",
                 "Profit",
                 "sum",
             ),
             (
-                r"\\b(?:sales?|revenue|billing|turnover)\\b",
-                "InvoiceTotal",
+                r"\b(?:sales?|revenue|billing|turnover)\b",
+                "GrossAmount",
                 "sum",
             ),
         ]
@@ -13038,27 +20608,66 @@ def execute_dynamic_query(
                     aggregate_function = metric_function
                     break
 
-        # Fallback to InvoiceTotal for payment-mode sales ranking
-        # and ordinary sales ranking if no specific metric matched.
+        # Deterministic value-metric fallback.
+        #
+        # sales/revenue/billing/turnover -> actual sales column
+        # invoice value/amount/total    -> InvoiceTotal
+        #
+        # Never use InvoiceTotal as a generic fallback for sales.
+        # Never guess an unrelated numeric column for unsupported
+        # metrics such as salary.
         if not aggregate_column:
-
-            for candidate in (
-                "InvoiceTotal",
-                "Invoice Total",
-                "Invoice Value",
-                "Total Amount",
-                "TotalAmount",
-                "Amount",
-            ):
-                aggregate_column = _resolve_column(
-                    candidate,
-                    dataset,
-                    schema,
-                    filtered_rows,
+            sales_context = bool(
+                re.search(
+                    r"\b(?:sales?|selling|revenue|billing|turnover)\b",
+                    question_norm,
+                    flags=re.IGNORECASE,
                 )
+            )
 
-                if aggregate_column:
-                    break
+            invoice_value_context = bool(
+                re.search(
+                    r"\binvoice\s+(?:value|amount|total)\b",
+                    question_norm,
+                    flags=re.IGNORECASE,
+                )
+            )
+
+            if sales_context:
+                for candidate in (
+                    "GrossAmount",
+                    "Gross Amount",
+                    "Sales Amount",
+                    "SalesAmount",
+                    "Revenue",
+                ):
+                    aggregate_column = _resolve_column(
+                        candidate,
+                        dataset,
+                        schema,
+                        filtered_rows,
+                    )
+
+                    if aggregate_column:
+                        break
+
+            elif invoice_value_context:
+                for candidate in (
+                    "InvoiceTotal",
+                    "Invoice Total",
+                    "Invoice Value",
+                    "Total Amount",
+                    "TotalAmount",
+                ):
+                    aggregate_column = _resolve_column(
+                        candidate,
+                        dataset,
+                        schema,
+                        filtered_rows,
+                    )
+
+                    if aggregate_column:
+                        break
 
         if aggregate_column:
 
@@ -13096,7 +20705,7 @@ def execute_dynamic_query(
                 key=_ranking_value,
                 reverse=not bool(
                     re.search(
-                        r"\\b(?:lowest|minimum|least|bottom)\\b",
+                        r"\b(?:lowest|minimum|least|bottom)\b",
                         question_norm,
                     )
                 ),
@@ -13106,7 +20715,9 @@ def execute_dynamic_query(
             # Explicit Top-N queries are handled by the existing
             # Top-N grouped-ranking path because top_n is excluded
             # from this detection block.
-            if not top_n:
+            if top_n:
+                grouped = grouped[:top_n]
+            else:
                 grouped = grouped[:1]
 
             result = {
@@ -13159,12 +20770,113 @@ def execute_dynamic_query(
             r"\b(?:invoice|invoices|transaction|transactions|record|records)\b",
             question_norm,
         )
+        and not re.search(
+            r"\b(?:customer|customers|product|products|item|items|"
+            r"category|categories|payment\s+modes?|payment\s+methods?|"
+            r"hsn\s+code|hsn\s+codes|state|states)\b",
+            question_norm,
+        )
     )
 
     if top_n_row_query:
 
         ranking_column = None
-        
+
+        # ----------------------------------------------------
+        # LATEST N INVOICES
+        #
+        # "latest 5 invoices" means the latest available
+        # invoice dates in the uploaded dataset.
+        #
+        # It must NOT use InvoiceTotal/GrossAmount ranking.
+        # ----------------------------------------------------
+
+        latest_n_invoice_query = bool(
+            top_n
+            and re.search(
+                r"\b(?:latest|most\s+recent)\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            )
+            and re.search(
+                r"\b(?:invoice|invoices|transaction|transactions)\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            )
+            and not re.search(
+                r"\b(?:invoice\s+(?:value|total|amount)|"
+                r"sales?|revenue|billing|turnover|"
+                r"profit|discount|quantity|qty|"
+                r"gst|total\s+gst|cgst|sgst|igst|"
+                r"taxable|taxable\s+amount|"
+                r"cost|gross|gross\s+amount|"
+                r"unit\s+price|unitprice|price)\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            )
+        )
+
+        if latest_n_invoice_query:
+
+            date_column = _resolve_column(
+                "date",
+                dataset,
+                schema,
+                filtered_rows,
+            )
+
+            if date_column:
+
+                ranked_rows = []
+
+                for row in filtered_rows:
+
+                    raw_date = row.get(date_column)
+                    parsed_date = _parse_date(raw_date)
+
+                    if parsed_date is None:
+                        continue
+
+                    ranked_rows.append(
+                        (
+                            parsed_date,
+                            row,
+                        )
+                    )
+
+                ranked_rows.sort(
+                    key=lambda item: item[0],
+                    reverse=True,
+                )
+
+                selected_rows = [
+                    row
+                    for _, row in ranked_rows[:top_n]
+                ]
+
+                result = {
+                    "operation": "top_n_rows",
+                    "ranking_column": date_column,
+                    "ranking_direction": "desc",
+                    "ranking_type": "latest",
+                    "top_n": top_n,
+                    "rows": selected_rows,
+                    "count": len(selected_rows),
+                    "source_rows": len(rows),
+                    "filtered_rows": len(filtered_rows),
+                }
+
+                return {
+                    **state,
+                    "intent": "rows",
+                    "requested_columns": requested_columns,
+                    "unavailable_columns": unavailable_columns,
+                    "filters": filters,
+                    "result": result,
+                    "aggregate_function": None,
+                    "aggregate_column": date_column,
+                }
+
         # ----------------------------------------------------
         # GST / CGST / SGST / IGST / Discount
         # ----------------------------------------------------
@@ -13308,7 +21020,7 @@ def execute_dynamic_query(
             ):
 
                 ranking_column = _resolve_column(
-                    "InvoiceTotal",
+                    "GrossAmount",
                     dataset,
                     schema,
                     filtered_rows,
@@ -13448,7 +21160,7 @@ def execute_dynamic_query(
                 "profit",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         elif re.search(
@@ -13459,7 +21171,7 @@ def execute_dynamic_query(
                 "qty",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         elif re.search(
@@ -13470,7 +21182,7 @@ def execute_dynamic_query(
                 "TotalGST",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         elif re.search(
@@ -13481,7 +21193,7 @@ def execute_dynamic_query(
                 "DiscountAmt",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         elif re.search(
@@ -13492,7 +21204,7 @@ def execute_dynamic_query(
                 "UnitPrice",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         elif re.search(
@@ -13503,7 +21215,7 @@ def execute_dynamic_query(
                 "TaxableAmount",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         elif re.search(
@@ -13514,7 +21226,7 @@ def execute_dynamic_query(
                 "Cost",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         else:
@@ -13523,7 +21235,7 @@ def execute_dynamic_query(
                 "InvoiceTotal",
                 dataset,
                 schema,
-                rows,
+                    [],
             )
 
         if threshold_metric and group_by:
@@ -13693,6 +21405,236 @@ def execute_dynamic_query(
     # Group + aggregate.
     # --------------------------------------------------------
 
+    # --------------------------------------------------------
+    # Temporal invoice-value ranking
+    #
+    # Highest/lowest invoice value month/year means the
+    # SUM of InvoiceTotal for each period.
+    # The ranking direction decides which period wins;
+    # it must not change the within-period aggregation.
+    # --------------------------------------------------------
+
+    temporal_invoice_value_ranking = bool(
+        time_grouping
+        and re.search(
+            r"\b(?:highest|maximum|most|top|lowest|minimum|least|bottom)\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+        and re.search(
+            r"\binvoice\s+(?:value|amount|total)\b"
+            r"|\binvoicevalue\b"
+            r"|\binvoiceamount\b"
+            r"|\binvoicetotal\b",
+            question_norm,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    if temporal_invoice_value_ranking:
+        invoice_total_column = _resolve_column(
+            "InvoiceTotal",
+            dataset,
+            schema,
+                    [],
+        )
+
+        if invoice_total_column:
+            aggregate_function = "sum"
+            aggregate_column = invoice_total_column
+
+    # --------------------------------------------------------
+    # Implicit grouped multi-metric queries.
+    #
+    # Examples:
+    #   Show sales and profit quarter wise
+    #   Show quantity and sales product wise
+    #   Show invoice count and discount year wise
+    #
+    # These queries do not necessarily contain words such
+    # as "total" or "sum", so _extract_multi_aggregate()
+    # intentionally does not handle them.
+    # --------------------------------------------------------
+
+    implicit_group_metrics = []
+
+    if group_by:
+        implicit_group_metrics = (
+            _extract_implicit_group_metrics(
+                question,
+                dataset,
+                schema,
+                filtered_rows,
+            )
+        )
+
+    if (
+        group_by
+        and len(implicit_group_metrics) >= 2
+    ):
+        grouped_multi = _group_multi_metrics(
+            filtered_rows,
+            group_by,
+            implicit_group_metrics,
+            time_period=(
+                time_grouping.get("period")
+                if time_grouping
+                else None
+            ),
+        )
+
+        result = {
+            "operation": "group_multi_aggregate",
+            "group_by": group_by,
+            "aggregate_function": "multi",
+            "aggregate_column": None,
+            "aggregate_metrics": implicit_group_metrics,
+            "rows": grouped_multi,
+            "count": len(grouped_multi),
+            "source_rows": len(rows),
+            "filtered_rows": len(filtered_rows),
+        }
+
+        return {
+            **state,
+            "intent": "group_aggregate",
+            "requested_columns": requested_columns,
+            "unavailable_columns": unavailable_columns,
+            "filters": filters,
+            "group_by": group_by,
+            "aggregate_function": "multi",
+            "aggregate_column": None,
+            "result": result,
+        }
+
+
+    # --------------------------------------------------------
+    # Explicit grouped multi-metric aggregate.
+    #
+    # Example:
+    #   sales profit average last 3 months
+    #
+    # This must run before the single-metric grouped branch.
+    # --------------------------------------------------------
+    query_plan = state.get("query_plan") or {}
+
+    explicit_multi_metrics = _extract_multi_aggregate(
+        (
+            query_plan.get("canonical_query")
+            if isinstance(query_plan, dict)
+            else None
+        )
+        or question,
+        dataset,
+        schema,
+        filtered_rows,
+    )
+
+    if group_by and len(explicit_multi_metrics) >= 2:
+        grouped_metrics = []
+
+        sales_column = _resolve_column(
+            "sales",
+            dataset,
+            schema,
+            filtered_rows,
+        )
+
+        profit_column = _resolve_column(
+            "profit",
+            dataset,
+            schema,
+            filtered_rows,
+        )
+
+        for metric in explicit_multi_metrics:
+            column = metric.get("column")
+            function = metric.get("function")
+
+            if not column or not function:
+                continue
+
+            if column == sales_column:
+                metric_name = "sales"
+            elif column == profit_column:
+                metric_name = "profit"
+            else:
+                metric_name = _normalize_text(str(column))
+
+            grouped_metrics.append(
+                {
+                    "metric": metric_name,
+                    "function": function,
+                    "column": column,
+                }
+            )
+
+        if len(grouped_metrics) >= 2:
+            grouped_multi = _group_multi_metrics(
+                filtered_rows,
+                group_by,
+                grouped_metrics,
+                time_period=(
+                    time_grouping.get("period")
+                    if time_grouping
+                    else None
+                ),
+            )
+
+            # Rename generic helper output according to the
+            # requested aggregation function.
+            for row in grouped_multi:
+                for metric in grouped_metrics:
+                    metric_name = metric["metric"]
+                    function = metric["function"]
+
+                    if metric_name == "sales":
+                        old_name = "Total Sales"
+                        base_name = "Sales"
+                    elif metric_name == "profit":
+                        old_name = "Total Profit"
+                        base_name = "Profit"
+                    else:
+                        continue
+
+                    if old_name in row:
+                        if function == "average":
+                            new_name = f"Average {base_name}"
+                        elif function == "sum":
+                            new_name = f"Total {base_name}"
+                        elif function == "max":
+                            new_name = f"Maximum {base_name}"
+                        elif function == "min":
+                            new_name = f"Minimum {base_name}"
+                        else:
+                            new_name = old_name
+
+                        row[new_name] = row.pop(old_name)
+
+            result = {
+                "operation": "group_multi_aggregate",
+                "group_by": group_by,
+                "aggregate_function": "multi",
+                "aggregate_column": None,
+                "aggregate_metrics": grouped_metrics,
+                "rows": grouped_multi,
+                "count": len(grouped_multi),
+                "source_rows": len(rows),
+                "filtered_rows": len(filtered_rows),
+            }
+
+            return {
+                **state,
+                "intent": "group_aggregate",
+                "requested_columns": requested_columns,
+                "unavailable_columns": unavailable_columns,
+                "filters": filters,
+                "group_by": group_by,
+                "aggregate_function": "multi",
+                "aggregate_column": None,
+                "result": result,
+            }
+
     if group_by and aggregate_function:
         grouped = _group_aggregate(
             filtered_rows,
@@ -13809,7 +21751,11 @@ def execute_dynamic_query(
         # ----------------------------------------------------
 
         if (
-            (ranking_group_query or lowest_ranking_group_query)
+            (
+                ranking_group_query
+                or lowest_ranking_group_query
+                or temporal_invoice_value_ranking
+            )
             and not top_n
             and grouped
         ):
@@ -13851,6 +21797,7 @@ def execute_dynamic_query(
                     key=_temporal_numeric_value,
                     reverse=not temporal_lowest,
                 )
+                
 
             grouped = grouped[:1]
 
@@ -13890,28 +21837,40 @@ def execute_dynamic_query(
             "aggregate_column": aggregate_column,
             "result": result,
         }
-        # --------------------------------------------------------
-    # Explicit column requests take priority over inferred
-    # aggregation.
+    # --------------------------------------------------------
+    # EXPLICIT PROJECTION VS VALID PLANNER AGGREGATE
     #
-    # Example:
-    #   give me a sales report with customer, product and amount
+    # A valid planner aggregate is authoritative.
+    # Do not let inferred requested columns such as:
+    #   Profit, Month
+    # turn a semantic query like:
+    #   latest month profit
+    # into a raw-row projection.
     #
-    # requested_columns:
-    #   Party Name, Product, Total Amount
-    #
-    # This is a row-level report, not a SUM query.
+    # Explicit projection still wins for genuine requests such
+    # as:
+    #   show Profit and Month
     # --------------------------------------------------------
 
-    explicit_projection = len(
-         requested_columns
-    ) >= 2
+    planner_plan = state.get("query_plan") or {}
+
+    planner_is_aggregate = bool(
+        isinstance(planner_plan, dict)
+        and planner_plan.get("status") == "OK"
+        and planner_plan.get("operation") == "aggregate"
+        and planner_plan.get("aggregate_function")
+        and planner_plan.get("aggregate_column")
+    )
+
+    explicit_projection = (
+        len(requested_columns) >= 2
+        and not planner_is_aggregate
+    )
 
     if explicit_projection:
         aggregate_function = None
         aggregate_column = None
-    
-        # --------------------------------------------------------
+    # --------------------------------------------------------
     # Multi-metric aggregate.
     #
     # Example:
@@ -13923,8 +21882,22 @@ def execute_dynamic_query(
     # not multiple row-level columns.
     # --------------------------------------------------------
 
+    # Use the planner's canonical query for multi-metric extraction.
+    # The original user wording may be shorthand such as:
+    #   "sales profit average last 3 months"
+    # while the planner normalizes it to:
+    #   "Show average sales and average profit for the last 3 months"
+
+    multi_aggregate_question = question
+
+    if isinstance(query_plan, dict):
+        multi_aggregate_question = (
+            query_plan.get("canonical_query")
+            or question
+        )
+
     multi_aggregates = _extract_multi_aggregate(
-        question,
+        multi_aggregate_question,
         dataset,
         schema,
         filtered_rows,
@@ -14125,18 +22098,25 @@ def execute_dynamic_query(
             result["rows"] = []
 
         else:
-            result["rows"] = filtered_rows
+            result["rows"] = []
 
     else:
         # No aggregate was detected.
-        # Return a safe empty result instead of
-        # referencing an uninitialized variable.
+        # Explicit requested columns must be projected.
+        if requested_columns:
+            result_rows = _project_rows(
+                filtered_rows,
+                requested_columns,
+            )
+        else:
+            result_rows = filtered_rows
+
         result = {
             "operation": "rows",
-            "rows": filtered_rows,
-            "count": len(filtered_rows),
+            "rows": result_rows,
+            "count": len(result_rows),
             "source_rows": len(rows),
-            "filtered_rows": len(filtered_rows),
+            "filtered_rows": original_filtered_row_count,
         }
 
     return {
@@ -14148,6 +22128,7 @@ def execute_dynamic_query(
         "aggregate_function": aggregate_function,
         "aggregate_column": aggregate_column,
         "result": result,
+        "rows": result.get("rows", []),
     }
 
     if re.search(
@@ -14191,7 +22172,7 @@ def execute_dynamic_query(
             "columns": _dataset_columns(
                 dataset,
                 schema,
-                rows,
+                    [],
             ),
         }
 
@@ -14231,7 +22212,7 @@ def execute_dynamic_query(
             else _dataset_columns(
                 dataset,
                 schema,
-                rows,
+                    [],
             )
         ),
     }
@@ -14245,7 +22226,98 @@ def execute_dynamic_query(
         "result": result,
     }
 
+# ============================================================
+# BUILD DYNAMIC CHART
+# ============================================================
 
+def build_dynamic_chart(
+    state: DynamicAgentState,
+) -> DynamicAgentState:
+    """
+    Convert an existing dynamic query result into chart
+    configuration.
+
+    This function does NOT execute another query and does
+    NOT modify the existing query engine.
+    """
+
+    question = state.get(
+        "question",
+        "",
+    )
+
+    result = state.get(
+        "result",
+        {},
+    )
+
+    if not isinstance(result, dict):
+        return {
+            **state,
+            "chart": {
+                "enabled": False,
+                "reason": "Invalid query result.",
+            },
+        }
+
+    result_rows = result.get(
+        "rows",
+        [],
+    )
+
+    if not isinstance(result_rows, list):
+        result_rows = []
+
+    # --------------------------------------------------------
+    # No usable rows -> no chart
+    # --------------------------------------------------------
+
+    if not result_rows:
+        return {
+            **state,
+            "chart": {
+                "enabled": False,
+                "reason": "No chartable rows found.",
+            },
+        }
+
+    # --------------------------------------------------------
+    # Import here to avoid unnecessary import coupling.
+    # --------------------------------------------------------
+
+    try:
+        from services.chart_service import (
+            build_chart_config,
+        )
+    except Exception as exc:
+        return {
+            **state,
+            "chart": {
+                "enabled": False,
+                "reason": f"Chart service unavailable: {exc}",
+            },
+        }
+
+    # --------------------------------------------------------
+    # Build chart from existing query result.
+    # --------------------------------------------------------
+
+    try:
+        chart_config = build_chart_config(
+            question,
+            result_rows,
+        )
+
+    except Exception as exc:
+        chart_config = {
+            "enabled": False,
+            "reason": f"Chart generation failed: {exc}",
+        }
+
+    return {
+        **state,
+        "chart": chart_config,
+    }
 # ============================================================
 # ANSWER HELPERS
 # ============================================================
@@ -14494,9 +22566,32 @@ def _format_grouped_gpt_answer(
 ) -> str:
     """
     Convert grouped database output into a concise GPT-style answer.
+    print("[DEBUG GROUP FORMAT] group_by=", repr(group_by), "question=", repr(question))
     """
 
     entity_name = _human_entity_name(group_by)
+
+    # Use the requested time period for temporal ranking output.
+    if group_by == "Date":
+        question_for_entity = _normalize_text(question)
+
+        if re.search(
+            r"\b(?:month|months|monthly)\b",
+            question_for_entity,
+        ):
+            entity_name = "months"
+
+        elif re.search(
+            r"\b(?:quarter|quarters|quarterly)\b",
+            question_for_entity,
+        ):
+            entity_name = "quarters"
+
+        elif re.search(
+            r"\b(?:year|years|yearly|annual|annually)\b",
+            question_for_entity,
+        ):
+            entity_name = "years"
 
     singular_entity_map = {
         "customers": "customer",
@@ -14607,9 +22702,34 @@ def _format_grouped_gpt_answer(
 
     metric_name = _human_metric_name(display_metric_column)
 
+
     question_lower = question.lower()
 
     is_quantity = metric_column in ("Qty", "Quantity", "TotalQty")
+    is_quantity = is_quantity or metric_name.lower() in (
+        "quantity",
+        "qty",
+        "total qty",
+    )
+
+    is_count = (
+        str(metric_column).strip().lower()
+        in ("count", "invoice count", "count of invoices")
+        or str(result_metric_column).strip().lower()
+        in ("count", "invoice count", "count of invoices")
+        or str(display_metric_column).strip().lower()
+        in ("count", "invoice count", "count of invoices")
+        or bool(
+            re.search(
+                r"\b(?:invoice\s+count|invoice\s+counts|"
+                r"count\s+(?:of\s+)?invoices?|"
+                r"number\s+of\s+invoices?|"
+                r"how\s+many\s+invoices?)\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            )
+        )
+)
     is_quantity = is_quantity or metric_name.lower() in ("quantity", "qty", "total qty")
 
     metric_label = (
@@ -14617,6 +22737,28 @@ def _format_grouped_gpt_answer(
         if is_quantity
         else metric_name
     )
+
+    # --------------------------------------------------------
+    # Invoice-value temporal ranking label
+    #
+    # InvoiceTotal is displayed as "invoice value" for
+    # highest/lowest month/year/quarter questions.
+    # Keep the existing "sales" label for generic sales
+    # queries.
+    # --------------------------------------------------------
+
+    if (
+        display_metric_column == "InvoiceTotal"
+        and re.search(
+            r"\binvoice\s+(?:value|amount|total)\b"
+            r"|\binvoicevalue\b"
+            r"|\binvoiceamount\b"
+            r"|\binvoicetotal\b",
+            question_lower,
+            flags=re.IGNORECASE,
+        )
+    ):
+        metric_label = "invoice value"
     # --------------------------------------------------------
     # TEMPORAL RANKING FORMAT
     # Convert grouped Date results into natural month/year/
@@ -14626,19 +22768,19 @@ def _format_grouped_gpt_answer(
     temporal_period = None
 
     if re.search(
-        r"\b(?:month|monthly)\b",
+        r"\b(?:month|months|monthly)\b",
         question_lower,
     ):
         temporal_period = "month"
 
     elif re.search(
-        r"\b(?:quarter|quarterly)\b",
+        r"\b(?:quarter|quarters|quarterly)\b",
         question_lower,
     ):
         temporal_period = "quarter"
 
     elif re.search(
-        r"\b(?:year|yearly)\b",
+        r"\b(?:year|years|yearly|annual|annually)\b",
         question_lower,
     ):
         temporal_period = "year"
@@ -14722,11 +22864,14 @@ def _format_grouped_gpt_answer(
         )
 
         try:
-            if is_quantity:
-                numeric_value = float(
-                    metric_value
-                )
+            numeric_value = float(
+                str(metric_value).replace(",", "")
+            )
 
+            if is_count:
+                formatted_value = f"{int(numeric_value):,}"
+
+            elif is_quantity:
                 if numeric_value.is_integer():
                     formatted_value = (
                         f"{int(numeric_value):,}"
@@ -14735,15 +22880,14 @@ def _format_grouped_gpt_answer(
                     formatted_value = (
                         f"{numeric_value:,.2f}"
                     )
+
             else:
                 formatted_value = _format_inr(
-                    metric_value
+                    numeric_value
                 )
-        except Exception:
-            formatted_value = str(
-                metric_value
-            )
 
+        except Exception:
+            formatted_value = str(metric_value)
         ranking_word = (
             "highest"
             if temporal_highest
@@ -14900,8 +23044,13 @@ def _format_grouped_gpt_answer(
             continue
 
         try:
-            if is_quantity:
-                numeric_value = float(metric_value)
+            if is_count:
+                formatted_value = f"{int(float(metric_value)):,}"
+
+            elif is_quantity:
+                numeric_value = float(
+                    metric_value
+                )
 
                 if numeric_value.is_integer():
                     formatted_value = (
@@ -14911,6 +23060,7 @@ def _format_grouped_gpt_answer(
                     formatted_value = (
                         f"{numeric_value:,.2f}"
                     )
+
             else:
                 formatted_value = _format_inr(
                     metric_value
@@ -15011,7 +23161,7 @@ def generate_dynamic_answer(
                 re.IGNORECASE,
             )
             and re.search(
-                r"\b(?:month|monthly|year|yearly|quarter|quarterly)\b",
+                r"\b(?:month|months|monthly|year|years|yearly|quarter|quarters|quarterly)\b",
                 question,
                 re.IGNORECASE,
             )
@@ -15274,9 +23424,7 @@ def generate_dynamic_answer(
         value_1 = result.get("value_1")
         value_2 = result.get("value_2")
 
-        difference = result.get(
-            "difference"
-        )
+        difference = result.get("difference")
 
         percentage_change = result.get(
             "percentage_change"
@@ -15291,6 +23439,33 @@ def generate_dynamic_answer(
             "period_2_has_data",
             False,
         )
+
+        # ----------------------------------------------------
+        # Determine the metric being compared.
+        # ----------------------------------------------------
+
+        metric_name = (
+            result.get("metric_label")
+            or result.get("metric")
+            or result.get("measure")
+            or result.get("field")
+            or result.get("column")
+            or "Sales"
+        )
+
+        metric_text = str(metric_name).strip()
+
+        # Normalize common metric names.
+        metric_lower = metric_text.lower()
+
+        if "profit" in metric_lower:
+            metric_text = "Profit"
+        elif "gst" in metric_lower:
+            metric_text = "GST"
+        elif "discount" in metric_lower:
+            metric_text = "Discount"
+        elif "sales" in metric_lower or "amount" in metric_lower:
+            metric_text = "Sales"
 
         # ----------------------------------------------------
         # Missing period handling.
@@ -15317,7 +23492,7 @@ def generate_dynamic_answer(
             )
 
             answer = (
-                "Sales period comparison:\n\n"
+                f"{metric_text} period comparison:\n\n"
                 f"- {period_1}: "
                 + (
                     f"\u20b9{float(value_1):,.2f}"
@@ -15355,8 +23530,10 @@ def generate_dynamic_answer(
             f"\u20b9{float(value_2):,.2f}"
         )
 
+        difference_value = float(difference or 0)
+
         difference_text = (
-            f"\u20b9{abs(float(difference)):,.2f}"
+            f"\u20b9{abs(difference_value):,.2f}"
         )
 
         if percentage_change is not None:
@@ -15367,34 +23544,36 @@ def generate_dynamic_answer(
             percentage_text = "N/A"
 
         # ----------------------------------------------------
-        # Determine change direction.
+        # period_1 = older period
+        # period_2 = newer period
         #
-        # period_1 is the newer/current period.
-        # period_2 is the comparison period.
+        # Therefore:
+        #   period_1 -> period_2
+        # is the chronological direction.
         # ----------------------------------------------------
 
-        if difference > 0:
+        if difference_value > 0:
             change_word = "increased"
-        elif difference < 0:
+        elif difference_value < 0:
             change_word = "decreased"
         else:
             change_word = "remained unchanged"
 
-        if difference == 0:
+        if difference_value == 0:
             change_sentence = (
-                "Sales remained unchanged between "
-                f"{period_1} and {period_2}."
+                f"{metric_text} remained unchanged between "
+                f"{period_2} and {period_1}."
             )
         else:
             change_sentence = (
-                f"Sales {change_word} by "
+                f"{metric_text} {change_word} by "
                 f"{difference_text} "
                 f"({percentage_text}) from "
-                f"{period_2} to {period_1}."
+                f"{period_1} to {period_2}."
             )
 
         answer = (
-            "Sales period comparison:\n\n"
+            f"{metric_text} period comparison:\n\n"
             f"- {period_1}: {value_1_text}\n"
             f"- {period_2}: {value_2_text}\n\n"
             f"{change_sentence}"
@@ -15406,14 +23585,6 @@ def generate_dynamic_answer(
             "result": result,
             "error": None,
         }
-        # --------------------------------------------------------
-    # Multi-metric aggregate answer.
-    #
-    # Example:
-    # Show total sales, total GST and total discount
-    # for ABC Traders in September 2026
-    # --------------------------------------------------------
-
     if result.get("operation") == "multi_aggregate":
         
         multi_aggregates = result.get(
@@ -15464,14 +23635,24 @@ def generate_dynamic_answer(
             if column in {
                 "Total Amount",
                 "Sales",
+                "GrossAmount",
             }:
                 metric_name = "Sales"
 
-            elif column == "GST":
+            elif column == "Profit":
+                metric_name = "Profit"
+
+            elif column in {"Qty", "Quantity"}:
+                metric_name = "Quantity"
+
+            elif column in {"GST", "TotalGST"}:
                 metric_name = "GST"
 
             elif column == "Discount":
                 metric_name = "Discount"
+
+            elif column == "InvoiceTotal":
+                metric_name = "Invoice Value"
 
             else:
                 metric_name = column
@@ -15676,7 +23857,7 @@ def generate_dynamic_answer(
 
             for value, frequency in value_items:
                 answer += (
-                    f"- {value} � {frequency} record"
+                    f"- {value} ? {frequency} record"
                     f"{'' if frequency == 1 else 's'}\n"
                 )
 
@@ -15899,6 +24080,109 @@ def generate_dynamic_answer(
         )
 
         # ----------------------------------------------------
+        # Universal SQL fast-path aggregate formatter.
+        # Keep SQL results consistent with universal aggregates.
+        # ----------------------------------------------------
+
+        metric_label = str(
+            column or "value"
+        ).strip()
+
+        metric_label_map = {
+            "GrossAmount": "sales",
+            "Profit": "profit",
+            "Qty": "quantity",
+            "DiscountAmt": "discount",
+            "TotalGST": "GST",
+            "CGST": "CGST",
+            "SGST": "SGST",
+            "IGST": "IGST",
+            "TaxableAmount": "taxable amount",
+            "Cost": "cost",
+            "UnitPrice": "unit price",
+            "InvoiceTotal": "invoice total",
+        }
+
+        metric_label = metric_label_map.get(
+            str(column),
+            metric_label,
+        )
+        financial_metrics = {
+            "sales",
+            "profit",
+            "discount",
+            "gst",
+            "cgst",
+            "sgst",
+            "igst",
+            "taxable amount",
+            "cost",
+            "unit price",
+            "invoice total",
+        }
+
+
+        if value is None and not column:
+            answer = "Information is not available in the uploaded data."
+            return {
+                **state,
+                "answer": answer,
+            }
+
+        if value is None:
+            formatted_value = "N/A"
+
+        elif metric_label.lower() in financial_metrics:
+            try:
+                formatted_value = _format_inr(value)
+            except Exception:
+                try:
+                    formatted_value = f"?{float(value):,.2f}"
+                except (TypeError, ValueError):
+                    formatted_value = str(value)
+
+        else:
+            try:
+                formatted_value = f"{float(value):,.2f}"
+            except (TypeError, ValueError):
+                formatted_value = str(value)
+
+        operation_label_map = {
+            "sum": "Total",
+            "average": "Average",
+            "max": "Maximum",
+            "min": "Minimum",
+        }
+        operation_label = operation_label_map.get(
+            function,
+            str(function).capitalize(),
+        )
+
+        
+
+        answer = (
+            f"{operation_label} "
+            f"{metric_label}: "
+            f"{formatted_value}"
+        )
+
+        # SQL fast-path non-sales aggregates can return now.
+        if not (str(metric_label).lower() == "sales" and function == "sum"):
+            if filters:
+                answer += "\n\nFilters Applied\n"
+                answer += "\n".join(
+                    f"- {_describe_filter(item)}"
+                    for item in filters
+                )
+
+            return {
+                **state,
+                "answer": answer,
+                "result": result,
+                "error": None,
+            }
+
+        # ----------------------------------------------------
         # Business-friendly sales summary.
         # ----------------------------------------------------
 
@@ -15908,7 +24192,9 @@ def generate_dynamic_answer(
 
         sales_query = bool(
             re.search(
-                r"\b(?:sales?|revenue|billing|turnover)\b",
+                r"\b(?:sales?|selling|revenue|billing|turnover|business|"
+                r"business\s+value|business\s+amount|sales\s+value|"
+                r"selling\s+value|business\s+done)\b",
                 question_norm,
             )
         )
@@ -16308,7 +24594,7 @@ def generate_dynamic_answer(
                 question_norm,
             )
             and re.search(
-                r"\b(?:sales?|revenue|billing|turnover|profit|gst|totalgst|total\s+gst|discount)\b",
+                r"\b(?:sales?|revenue|billing|turnover|profit|gst|totalgst|total\s+gst|discount|invoice\s+value|invoice\s+amount|invoice\s+total)\b",
                 question_norm,
             )
         )
@@ -16320,7 +24606,7 @@ def generate_dynamic_answer(
                 question_norm,
             )
             and re.search(
-                r"\b(?:sales?|revenue|billing|turnover|profit|gst|totalgst|total\s+gst|discount)\b",
+                r"\b(?:sales?|revenue|billing|turnover|profit|gst|totalgst|total\s+gst|discount|invoice\s+value|invoice\s+amount|invoice\s+total)\b",
                 question_norm,
             )
         )
@@ -16345,7 +24631,8 @@ def generate_dynamic_answer(
             r"\b(?:which|show|give|list)\s+(\d+)\s+"
             r"(?:customers?|products?|items?|parties?|"
             r"suppliers?|vendors?|payment\s+modes?|payment\s+methods?|"
-            r"invoices?|transactions?|records?)"
+            r"invoices?|transactions?|records?|"
+            r"months?|years?|quarters?)"
             r".*?\b(highest|lowest|maximum|minimum|most|least)\b",
             question_norm,
             flags=re.IGNORECASE,
@@ -16355,7 +24642,7 @@ def generate_dynamic_answer(
             top_n_match
             and group_by
             and re.search(
-                r"\b(?:sales?|revenue|billing|turnover|profit|gst|totalgst|total\s+gst|discount)\b",
+                r"\b(?:sales?|revenue|billing|turnover|profit|gst|totalgst|total\s+gst|discount|invoice\s+value|invoice\s+amount|invoice\s+total)\b",
                 question_norm,
             )
             and result_rows
@@ -16933,6 +25220,15 @@ def generate_dynamic_answer(
                 question_norm,
             ):
                 metric_label = "unit price"
+            elif re.search(
+                r"\binvoice\s+(?:value|amount|total)\b"
+                r"|\binvoicevalue\b"
+                r"|\binvoiceamount\b"
+                r"|\binvoicetotal\b",
+                question_norm,
+                flags=re.IGNORECASE,
+            ):
+                metric_label = "invoice value"
             else:
                 metric_label = "sales"
                            
@@ -17037,7 +25333,7 @@ def generate_dynamic_answer(
                 re.IGNORECASE,
             )
             and re.search(
-                r"\b(?:month|monthly|year|yearly|quarter|quarterly)\b",
+                r"\b(?:month|months|monthly|year|years|yearly|quarter|quarters|quarterly)\b",
                 question,
                 re.IGNORECASE,
             )
@@ -17355,7 +25651,7 @@ def generate_dynamic_answer(
                 question_norm,
             )
             and re.search(
-                r"\b(?:month|monthly|year|yearly|quarter|quarterly)\b",
+                r"\b(?:month|months|monthly|year|years|yearly|quarter|quarters|quarterly)\b",
                 question_norm,
             )
         )
@@ -17553,6 +25849,69 @@ def generate_dynamic_answer(
             f"{'' if count == 1 else 's'} "
             f"from '{dataset_name}'."
         )
+    elif result.get("operation") == "ranking" and result.get("rows"):
+        ranking_rows = result.get("rows", [])
+        ranking_group = (
+            result.get("group_by")
+            or state.get("group_by")
+            or "Entity"
+        )
+
+        metric_name = "sales"
+        metrics = result.get("metrics") or []
+
+        if metrics and isinstance(metrics[0], dict):
+            metric_name = (
+                metrics[0].get("label")
+                or metrics[0].get("requested")
+                or "sales"
+            )
+
+        direction = str(
+            state.get("ranking_direction")
+            or state.get("direction")
+            or result.get("direction")
+            or (
+                "asc"
+                if re.search(
+                    r"\b(?:bottom|lowest|minimum|min|smallest|least)\b",
+                    question.lower(),
+                )
+                else "desc"
+            )
+        ).lower()
+
+        metric_label = metric_name.replace("_", " ").title()
+        group_label = ranking_group.replace("_", " ").title()
+
+        if direction == "asc":
+            title = f"Lowest {metric_label} by {group_label}"
+        else:
+            title = f"Highest {metric_label} by {group_label}"
+
+        ranking_lines = []
+
+        for row in ranking_rows:
+            group_value = row.get(ranking_group)
+            metric_value = row.get(metric_name)
+
+            if metric_value is None:
+                for key, value in row.items():
+                    if (
+                        key != ranking_group
+                        and isinstance(value, (int, float))
+                    ):
+                        metric_value = value
+                        break
+
+            formatted_metric = _format_inr(metric_value)
+
+            ranking_lines.append(
+                f"{group_value} - {formatted_metric}"
+            )
+
+        answer = title + "\n\n" + "\n".join(ranking_lines)
+
     else:
         prefix = (
             f"Found {count} matching record"
@@ -17849,7 +26208,143 @@ def generate_dynamic_answer(
             "error": None,
         }
 
-    answer = prefix
+    answer = locals().get("prefix") or answer
+
+    # --------------------------------------------------------
+    # UNIVERSAL AGGREGATE RESULT FORMATTER
+    # --------------------------------------------------------
+
+    result_operation = str(
+        result.get("operation") or ""
+    ).strip().lower()
+
+    if result_operation == "aggregate":
+        values = result.get("values") or {}
+        metrics = result.get("metrics") or []
+
+        if not values:
+            return {
+                **state,
+                "answer": "Data not available in uploaded file.",
+                "result": result,
+                "error": None,
+            }
+
+        answer = ""
+
+        for index, (metric_name, value) in enumerate(
+            values.items()
+        ):
+            metric_info = {}
+
+            for item in metrics:
+                if (
+                    isinstance(item, dict)
+                    and str(item.get("requested"))
+                    == str(metric_name)
+                ):
+                    metric_info = item
+                    break
+
+            function = str(
+                metric_info.get("function") or ""
+            ).lower()
+
+            label = str(
+                metric_info.get("label")
+                or metric_name
+            ).strip()
+
+            # Normalize internal source-column names for user-facing answers.
+            display_metric_labels = {
+                "GrossAmount": "Sales",
+                "Profit": "Profit",
+                "Qty": "Quantity",
+                "Quantity": "Quantity",
+                "TotalGST": "GST",
+                "GST": "GST",
+                "CGST": "CGST",
+                "SGST": "SGST",
+                "IGST": "IGST",
+                "DiscountAmt": "Discount",
+                "TaxableAmount": "Taxable Amount",
+                "Cost": "Cost",
+                "UnitPrice": "Unit Price",
+                "InvoiceTotal": "Invoice Value",
+            }
+            label = display_metric_labels.get(label, label)
+
+
+            # Human-readable operation name.
+            operation_labels = {
+                "sum": "Total",
+                "average": "Average",
+                "avg": "Average",
+                "max": "Maximum",
+                "min": "Minimum",
+                "median": "Median",
+                "count": "Count",
+            }
+
+            operation_label = operation_labels.get(
+                function,
+                function.title() if function else "",
+            )
+
+            # Quantity/count-like values should not be shown
+            # as currency.
+            is_quantity = bool(
+                re.search(
+                    r"\b(?:quantity|qty|units|count)\b",
+                    label.lower(),
+                )
+            )
+
+            if value is None:
+                formatted_value = "N/A"
+
+            elif is_quantity:
+                try:
+                    formatted_value = (
+                        f"{float(value):,.0f}"
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    formatted_value = str(value)
+
+            else:
+                try:
+                    formatted_value = _format_inr(
+                        value
+                    )
+                except Exception:
+                    formatted_value = str(value)
+
+            if operation_label:
+                line = (
+                    f"{operation_label} "
+                    f"{label}: "
+                    f"{formatted_value}"
+                )
+            else:
+                line = (
+                    f"{label}: "
+                    f"{formatted_value}"
+                )
+
+            if index > 0:
+                answer += "\n"
+
+            answer += line
+
+        return {
+            **state,
+            "answer": answer,
+            "result": result,
+            "error": None,
+        }
 
     if filters:
         answer += (
@@ -17912,7 +26407,7 @@ def generate_dynamic_answer(
     # Existing table formatting for non-raw-row results
     # --------------------------------------------------------
 
-    if result_rows:
+    if result_rows and result.get("operation") != "ranking":
         answer += "\n\n"
 
         answer += _format_table(
@@ -17925,4 +26420,874 @@ def generate_dynamic_answer(
         "result": result,
         "error": None,
     }
- 
+# ============================================================
+# UNIVERSAL METRIC RESOLVER
+# ============================================================
+
+def _resolve_universal_metric(
+    metric: str,
+    dataset,
+    schema,
+    rows,
+):
+    """
+    Resolve a user-facing business metric to an actual uploaded column.
+
+    Important:
+    - Never invent a column.
+    - Direct uploaded columns always have priority.
+    - Semantic mappings are validated through _resolve_column().
+    - Aggregation words are separated from the business metric.
+    """
+
+    if not metric:
+        return None
+
+    original_metric = str(metric).strip()
+    text = _normalize_text(original_metric).strip()
+
+    if not text:
+        return None
+
+    # ------------------------------------------------------------
+    # Detect aggregation words that may be embedded in the metric.
+    # Example:
+    #   "average sales" -> metric = "sales", function = "average"
+    #   "avg profit"    -> metric = "profit", function = "average"
+    #   "maximum sales" -> metric = "sales", function = "max"
+    # ------------------------------------------------------------
+
+    function = None
+
+    aggregation_aliases = {
+        "average": "average",
+        "avg": "average",
+        "mean": "average",
+        "typical average": "average",
+
+        "maximum": "max",
+        "max": "max",
+        "highest": "max",
+        "largest": "max",
+        "top": "max",
+
+        "minimum": "min",
+        "min": "min",
+        "lowest": "min",
+        "smallest": "min",
+
+        "total": "sum",
+        "sum": "sum",
+    }
+
+    # Longest phrases first so "typical average" is checked
+    # before individual words.
+    for alias in sorted(
+        aggregation_aliases,
+        key=len,
+        reverse=True,
+    ):
+        if text == alias:
+            # A bare aggregation word is not a business metric.
+            return None
+
+        prefix = alias + " "
+        if text.startswith(prefix):
+            function = aggregation_aliases[alias]
+            text = text[len(prefix):].strip()
+            break
+
+    # Also support aggregation words at the end.
+    if function is None:
+        for alias in sorted(
+            aggregation_aliases,
+            key=len,
+            reverse=True,
+        ):
+            suffix = " " + alias
+            if text.endswith(suffix):
+                candidate_text = text[:-len(suffix)].strip()
+
+                if candidate_text:
+                    function = aggregation_aliases[alias]
+                    text = candidate_text
+                    break
+
+    # Default aggregation.
+    if function is None:
+        function = "sum"
+
+    # ------------------------------------------------------------
+    # Direct uploaded column first.
+    # ------------------------------------------------------------
+
+    direct = _resolve_column(
+        original_metric,
+        dataset,
+        schema,
+                    [],
+    )
+
+    if direct:
+        return {
+            "column": direct,
+            "function": function,
+            "label": original_metric,
+        }
+
+    # Try the cleaned metric after removing aggregation words.
+    direct_cleaned = _resolve_column(
+        text,
+        dataset,
+        schema,
+                    [],
+    )
+
+    if direct_cleaned:
+        return {
+            "column": direct_cleaned,
+            "function": function,
+            "label": original_metric,
+        }
+
+    # ------------------------------------------------------------
+    # Business semantic mappings.
+    #
+    # The candidate column is STILL validated against the uploaded
+    # schema below. Therefore a synonym can never invent a column.
+    # ------------------------------------------------------------
+
+    semantic_candidates = {
+        # Sales / revenue / business value
+        "sales": ["GrossAmount"],
+        "sale": ["GrossAmount"],
+        "selling": ["GrossAmount"],
+        "selling amount": ["GrossAmount"],
+        "sales amount": ["GrossAmount"],
+        "revenue": ["GrossAmount"],
+        "turnover": ["GrossAmount"],
+        "billing": ["GrossAmount"],
+        "business": ["GrossAmount"],
+        "business value": ["GrossAmount"],
+        "business amount": ["GrossAmount"],
+        "sales value": ["GrossAmount"],
+        "sales volume": ["GrossAmount"],
+        "selling value": ["GrossAmount"],
+        "total business": ["GrossAmount"],
+        "business done": ["GrossAmount"],
+
+        # Profit
+        "profit": ["Profit"],
+        "profits": ["Profit"],
+        "earning": ["Profit"],
+        "earnings": ["Profit"],
+        "gain": ["Profit"],
+        "gains": ["Profit"],
+        "kamai": ["Profit"],
+        "fayda": ["Profit"],
+        "benefit": ["Profit"],
+        "profit amount": ["Profit"],
+        "profit value": ["Profit"],
+
+        # Quantity
+        "quantity": ["Qty"],
+        "qty": ["Qty"],
+        "units": ["Qty"],
+        "unit": ["Qty"],
+        "number of units": ["Qty"],
+        "items sold": ["Qty"],
+        "items": ["Qty"],
+
+        # Discount
+        "discount": ["DiscountAmt"],
+        "discount amount": ["DiscountAmt"],
+        "discount value": ["DiscountAmt"],
+
+        # GST
+        "gst": ["TotalGST"],
+        "total gst": ["TotalGST"],
+        "gst amount": ["TotalGST"],
+
+        "cgst": ["CGST"],
+        "cgst amount": ["CGST"],
+
+        "sgst": ["SGST"],
+        "sgst amount": ["SGST"],
+
+        "igst": ["IGST"],
+        "igst amount": ["IGST"],
+
+        # Taxable amount
+        "taxable": ["TaxableAmount"],
+        "taxable amount": ["TaxableAmount"],
+        "taxable value": ["TaxableAmount"],
+
+        # Cost
+        "cost": ["Cost"],
+        "cost amount": ["Cost"],
+        "cost value": ["Cost"],
+
+        # Unit price
+        "unit price": ["UnitPrice"],
+        "price": ["UnitPrice"],
+        "selling price": ["UnitPrice"],
+
+        # Invoice value
+        "invoice value": ["InvoiceTotal"],
+        "invoice amount": ["InvoiceTotal"],
+        "invoice total": ["InvoiceTotal"],
+        "invoice value amount": ["InvoiceTotal"],
+    }
+
+    candidates = semantic_candidates.get(text)
+
+    if not candidates:
+        return None
+
+    # ------------------------------------------------------------
+    # Validate every semantic candidate against uploaded data.
+    # ------------------------------------------------------------
+
+    for candidate in candidates:
+        resolved = _resolve_column(
+            candidate,
+            dataset,
+            schema,
+                    [],
+        )
+
+        if not resolved:
+            continue
+
+        resolved_function = function
+
+        # Unit price is a per-row metric.
+        # If the user did not explicitly request max/min/sum,
+        # average is the safest default.
+        if (
+            text in {
+                "unit price",
+                "price",
+                "selling price",
+            }
+            and function == "sum"
+        ):
+            resolved_function = "average"
+
+        return {
+            "column": resolved,
+            "function": resolved_function,
+            "label": original_metric,
+        }
+
+    # No matching uploaded column.
+    return None
+
+# ============================================================
+# UNIVERSAL QUERY PLAN EXECUTOR
+# ============================================================
+
+def _execute_universal_plan(
+    state,
+    dataset,
+    schema,
+    rows,
+):
+    """
+    Execute a validated universal query plan.
+
+    This layer performs deterministic calculations on uploaded
+    data. It does not ask the LLM to calculate numbers.
+    """
+
+    plan = state.get("query_plan")
+
+    if not isinstance(plan, dict):
+        return None
+
+    if plan.get("status") != "OK":
+        return None
+
+    operation = str(
+        plan.get("operation") or ""
+    ).strip().lower()
+
+    if operation not in {
+        "aggregate",
+        "group_aggregate",
+        "count",
+        "ranking",
+    }:
+        return None
+
+    metrics = plan.get("metrics") or []
+
+    if not metrics:
+        metric = plan.get("metric")
+
+        if metric:
+            metrics = (
+                metric
+                if isinstance(metric, list)
+                else [metric]
+            )
+
+    if not metrics:
+        return None
+
+    resolved_metrics = []
+
+    for metric in metrics:
+
+        resolved = _resolve_universal_metric(
+            metric,
+            dataset,
+            schema,
+                    [],
+        )
+
+        if not resolved:
+            return {
+                "status": "DATA_NOT_AVAILABLE",
+                "message": "Data not available in uploaded file/data",
+                "unavailable_metric": metric,
+            }
+
+        resolved_metrics.append(
+            {
+                "requested": metric,
+                **resolved,
+            }
+        )
+
+    # Planner aggregation overrides the metric resolver default.
+    planner_aggregate_function = state.get("query_plan", {}).get(
+        "aggregate_function"
+    )
+
+    if planner_aggregate_function:
+        for resolved_metric in resolved_metrics:
+            resolved_metric["function"] = planner_aggregate_function
+
+    # Apply planner filters.
+    # --------------------------------------------------------
+
+    working_rows = list(rows)
+
+    planner_filters = plan.get("filters") or []
+    state_filters = state.get("filters") or []
+
+    # Deterministic date filters are more reliable than planner date filters.
+    # Keep non-date planner filters, then add the parser-generated date filters.
+    if any(
+        isinstance(f, dict) and f.get("type") == "date"
+        for f in state_filters
+    ):
+        non_date_planner_filters = [
+            f
+            for f in planner_filters
+            if not (
+                isinstance(f, dict)
+                and f.get("type") == "date"
+            )
+        ]
+        filters = _deduplicate_filters(
+            non_date_planner_filters + state_filters
+        )
+    else:
+        filters = planner_filters
+
+    if filters:
+
+        filtered = []
+
+        for row in working_rows:
+
+            matched = True
+
+            for item in filters:
+
+                if not isinstance(item, dict):
+                    continue
+
+                requested_column = item.get("column")
+                operator = str(
+                    item.get("operator") or "eq"
+                ).lower()
+
+                value = item.get("value")
+
+                actual_column = _resolve_column(
+                    requested_column,
+                    dataset,
+                    schema,
+                    working_rows,
+                )
+
+                if not actual_column:
+                    matched = False
+                    break
+
+                actual_value = row.get(
+                    actual_column
+                )
+
+                # ------------------------------------------------
+                # DATE FILTERS
+                # ------------------------------------------------
+                # Date values are commonly stored as strings such
+                # as "2026-08-15 00:00:00". They must not go through
+                # numeric comparison logic.
+                # ------------------------------------------------
+                if item.get("type") == "date":
+
+                    actual_text = str(
+                        actual_value or ""
+                    ).strip()
+
+                    target_text = str(
+                        value or ""
+                    ).strip()
+
+                    actual_date = actual_text[:10]
+                    target_date = target_text[:10]
+
+                    if operator == "year":
+                        try:
+                            if int(actual_date[:4]) != int(value):
+                                matched = False
+                                break
+                        except (ValueError, TypeError):
+                            matched = False
+                            break
+
+                    elif operator == "month":
+                        try:
+                            if int(actual_date[5:7]) != int(value):
+                                matched = False
+                                break
+                        except (ValueError, TypeError):
+                            matched = False
+                            break
+
+                    elif operator in {
+                        "eq",
+                        "=",
+                        "==",
+                    }:
+
+                        if actual_date != target_date:
+                            matched = False
+                            break
+
+                    elif operator in {
+                        ">",
+                        "gt",
+                    }:
+
+                        if actual_date <= target_date:
+                            matched = False
+                            break
+
+                    elif operator in {
+                        "<",
+                        "lt",
+                    }:
+
+                        if actual_date >= target_date:
+                            matched = False
+                            break
+
+                    elif operator in {
+                        ">=",
+                        "gte",
+                    }:
+
+                        if actual_date < target_date:
+                            matched = False
+                            break
+
+                    elif operator in {
+                        "<=",
+                        "lte",
+                    }:
+
+                        if actual_date > target_date:
+                            matched = False
+                            break
+
+                    continue
+
+                if operator in {
+                    "eq",
+                    "=",
+                    "==",
+                }:
+
+                    if str(actual_value).strip().lower() != str(
+                        value
+                    ).strip().lower():
+                        matched = False
+                        break
+
+                elif operator in {
+                    "contains",
+                }:
+
+                    if str(value).lower() not in str(
+                        actual_value
+                    ).lower():
+                        matched = False
+                        break
+
+                elif operator in {
+                    "in",
+                    "one_of",
+                }:
+
+                    allowed_values = (
+                        value
+                        if isinstance(
+                            value,
+                            (list, tuple, set),
+                        )
+                        else [value]
+                    )
+
+                    normalized_allowed_values = {
+                        str(item).strip().lower()
+                        for item in allowed_values
+                    }
+
+                    if (
+                        str(actual_value).strip().lower()
+                        not in normalized_allowed_values
+                    ):
+                        matched = False
+                        break
+
+
+                elif operator in {
+                    ">",
+                    "gt",
+                }:
+
+                    if (
+                        _to_number(actual_value) is None
+                        or _to_number(value) is None
+                        or _to_number(actual_value)
+                        <= _to_number(value)
+                    ):
+                        matched = False
+                        break
+
+                elif operator in {
+                    "<",
+                    "lt",
+                }:
+
+                    if (
+                        _to_number(actual_value) is None
+                        or _to_number(value) is None
+                        or _to_number(actual_value)
+                        >= _to_number(value)
+                    ):
+                        matched = False
+                        break
+
+                elif operator in {
+                    ">=",
+                    "gte",
+                }:
+
+                    if (
+                        _to_number(actual_value) is None
+                        or _to_number(value) is None
+                        or _to_number(actual_value)
+                        < _to_number(value)
+                    ):
+                        matched = False
+                        break
+
+                elif operator in {
+                    "<=",
+                    "lte",
+                }:
+
+                    if (
+                        _to_number(actual_value) is None
+                        or _to_number(value) is None
+                        or _to_number(actual_value)
+                        > _to_number(value)
+                    ):
+                        matched = False
+                        break
+
+            if matched:
+                filtered.append(row)
+
+        working_rows = filtered
+
+    # --------------------------------------------------------
+    # COUNT
+    # --------------------------------------------------------
+
+    if operation == "count":
+
+        return {
+            "operation": "count",
+            "value": len(working_rows),
+            "filtered_rows": len(working_rows),
+            "source_rows": len(rows),
+            "metrics": resolved_metrics,
+        }
+
+    # --------------------------------------------------------
+    # GROUP AGGREGATE / RANKING
+    # --------------------------------------------------------
+
+    group_by_requested = plan.get(
+        "group_by"
+    )
+
+    group_by = None
+
+    if group_by_requested:
+
+        group_by = _resolve_column(
+            group_by_requested,
+            dataset,
+            schema,
+            working_rows,
+        )
+
+        if not group_by:
+            return {
+                "status": "DATA_NOT_AVAILABLE",
+                "message": "Data not available in uploaded file/data",
+                "unavailable_column": group_by_requested,
+            }
+
+    direction = str(
+        plan.get("direction") or "desc"
+    ).lower()
+
+    limit = plan.get("limit")
+
+    try:
+        limit = int(limit) if limit else None
+    except (TypeError, ValueError):
+        limit = None
+
+    # --------------------------------------------------------
+    # GROUPED RESULT
+    # --------------------------------------------------------
+
+    if group_by:
+
+        grouped_rows = []
+
+        # Build groups manually so multiple metrics can be
+        # calculated without adding new query-specific code.
+
+        groups = {}
+
+        for row in working_rows:
+
+            key = row.get(group_by)
+
+            if key is None:
+                key = ""
+
+            groups.setdefault(
+                str(key),
+                [],
+            ).append(row)
+
+        for group_value, group_rows in groups.items():
+
+            result_row = {
+                group_by: group_value,
+            }
+
+            for metric in resolved_metrics:
+
+                column = metric["column"]
+                function = metric["function"]
+
+                values = []
+
+                for row in group_rows:
+
+                    numeric_value = _to_number(
+                        row.get(column)
+                    )
+
+                    if numeric_value is not None:
+                        values.append(
+                            numeric_value
+                        )
+
+                if not values:
+                    result_row[
+                        metric["requested"]
+                    ] = None
+                    continue
+
+                if function == "average":
+
+                    calculated = (
+                        sum(values) / len(values)
+                    )
+
+                elif function == "max":
+
+                    calculated = max(values)
+
+                elif function == "min":
+
+                    calculated = min(values)
+
+                else:
+
+                    calculated = sum(values)
+
+                result_row[
+                    metric["requested"]
+                ] = calculated
+
+            grouped_rows.append(result_row)
+
+        # ----------------------------------------------------
+        # Ranking.
+        # ----------------------------------------------------
+
+        if operation == "ranking" or limit:
+
+            ranking_metric = (
+                resolved_metrics[0]["requested"]
+            )
+
+            grouped_rows.sort(
+                key=lambda item: (
+                    item.get(
+                        ranking_metric
+                    )
+                    if item.get(
+                        ranking_metric
+                    ) is not None
+                    else 0
+                ),
+                reverse=(
+                    direction != "asc"
+                ),
+            )
+
+        if limit:
+            grouped_rows = grouped_rows[:limit]
+
+        return {
+            "operation": (
+                "ranking"
+                if operation == "ranking"
+                else "group_aggregate"
+            ),
+            "group_by": group_by,
+            "rows": grouped_rows,
+            "count": len(grouped_rows),
+            "source_rows": len(rows),
+            "filtered_rows": len(working_rows),
+            "metrics": resolved_metrics,
+        }
+
+    # --------------------------------------------------------
+    # SINGLE AGGREGATE
+    # --------------------------------------------------------
+
+    result = {}
+
+    for metric in resolved_metrics:
+
+        column = metric["column"]
+        function = metric["function"]
+
+        values = []
+
+        for row in working_rows:
+
+            numeric_value = _to_number(
+                row.get(column)
+            )
+
+            if numeric_value is not None:
+                values.append(
+                    numeric_value
+                )
+
+        if not values:
+            result[
+                metric["requested"]
+            ] = None
+            continue
+
+        if function == "average":
+
+            calculated = (
+                sum(values) / len(values)
+            )
+
+        elif function == "max":
+
+            calculated = max(values)
+
+        elif function == "min":
+
+            calculated = min(values)
+
+        else:
+
+            calculated = sum(values)
+
+        result[
+            metric["requested"]
+        ] = calculated
+
+    return {
+        "operation": "aggregate",
+        "values": result,
+        "metrics": resolved_metrics,
+        "source_rows": len(rows),
+        "filtered_rows": len(working_rows),
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

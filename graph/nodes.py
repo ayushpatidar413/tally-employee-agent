@@ -3,8 +3,8 @@ import os
 import re
 
 from dotenv import load_dotenv
-from langchain_groq import ChatGroq
 
+from langchain_google_genai import ChatGoogleGenerativeAI
 from tools.employee_db_tools import get_all_employees
 from database.upload_db import get_uploaded_employees
 
@@ -51,9 +51,9 @@ from agents.hr_tools import (
 
 load_dotenv()
 
-if not os.getenv("GROQ_API_KEY"):
+if not os.getenv("GOOGLE_API_KEY"):
     raise ValueError(
-        "GROQ_API_KEY is not set in .env file"
+        "GOOGLE_API_KEY is not set in .env file"
     )
 
 
@@ -61,11 +61,10 @@ if not os.getenv("GROQ_API_KEY"):
 # LLM
 # ============================================================
 
-llm = ChatGroq(
-    model="openai/gpt-oss-120b",
-    temperature=0,
+llm = ChatGoogleGenerativeAI(
+    model="gemini-3.6-flash",
+    temperature=0
 )
-
 
 # ============================================================
 # MONTH / YEAR EXTRACTION

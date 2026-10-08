@@ -1,4 +1,4 @@
-
+﻿
 from pathlib import Path
 from typing import Any
 
@@ -90,7 +90,6 @@ GENERATED_DIR.mkdir(
 # ============================================================
 # FASTAPI APP
 # ============================================================
-
 app = FastAPI(
     title="Tally Employee & Dynamic Business Agent",
     description=(
@@ -100,7 +99,6 @@ app = FastAPI(
     version="1.0.0",
 )
 
-
 # ============================================================
 # CORS
 # ============================================================
@@ -109,7 +107,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
@@ -117,6 +119,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ============================================================
+# INITIALIZE DATABASE TABLES
+# ============================================================
 
 
 # ============================================================
@@ -461,11 +467,22 @@ def ask_business(request: AskRequest):
         # Invoke Dynamic LangGraph Agent
         # ----------------------------------------------------
 
+        import time
+
+        agent_start_time = time.perf_counter()
+
         result = dynamic_agent.invoke(
             {
                 "question": query,
                 "dataset_id": request.dataset_id,
             }
+        )
+
+        agent_end_time = time.perf_counter()
+
+        print(
+            f"[TIMING] Dynamic Agent: "
+            f"{agent_end_time - agent_start_time:.2f} seconds"
         )
         print(
          "[DEBUG API DYNAMIC AGENT]",
@@ -509,6 +526,8 @@ def ask_business(request: AskRequest):
             "result": result.get(
                 "result"
             ),
+            "chart": result.get("chart"),
+            
             "export_requested": result.get(
                 "export_requested",
                 False,
@@ -660,17 +679,11 @@ def ask_business(request: AskRequest):
         # EXISTING GENERIC EXPORT
         # ----------------------------------------------------
 
-        elif result.get(
-            "export_requested",
-            False,
-        ):
+        # ----------------------------------------------------
+        # GENERIC REPORT EXPORT
+        # ----------------------------------------------------
 
-            export_format = (
-                result.get(
-                    "export_format"
-                )
-                or "xlsx"
-            )
+        else:
 
             query_result = result.get(
                 "result",
@@ -683,11 +696,9 @@ def ask_business(request: AskRequest):
             ):
                 query_result = {}
 
-            export_rows_data = (
-                query_result.get(
-                    "rows",
-                    [],
-                )
+            export_rows_data = query_result.get(
+                "rows",
+                [],
             )
 
             if not isinstance(
@@ -696,9 +707,9 @@ def ask_business(request: AskRequest):
             ):
                 export_rows_data = []
 
-            # ------------------------------------------------
-            # Make sure there are rows
-            # ------------------------------------------------
+            # -----------------------------------------------
+            # Generate downloadable report when rows exist
+            # -----------------------------------------------
 
             if export_rows_data:
 
@@ -724,27 +735,59 @@ def ask_business(request: AskRequest):
                     original_filename
                 ).stem
 
-                # ------------------------------------------------
-                # Generate filename
-                # ------------------------------------------------
+                # -------------------------------------------
+                # Keep requested export format when supplied
+                # Otherwise default to XLSX
+                # -------------------------------------------
 
-                generated_filename = (
-                    f"{dataset_stem}_export"
+                export_requested = bool(
+                    result.get(
+                        "export_requested",
+                        False,
+                    )
                 )
 
-                if export_format == "pdf":
-                    generated_filename += ".pdf"
+                export_format = (
+                    result.get(
+                        "export_format"
+                    )
+                    or "xlsx"
+                )
 
-                elif export_format == "csv":
+                export_format = str(
+                    export_format
+                ).lower().replace(
+                    ".",
+                    "",
+                )
+
+                if export_format not in {
+                    "xlsx",
+                    "csv",
+                    "pdf",
+                }:
+                    export_format = "xlsx"
+
+                # -------------------------------------------
+                # Filename
+                # -------------------------------------------
+
+                generated_filename = (
+                    f"{dataset_stem}_report"
+                )
+
+                if export_format == "csv":
                     generated_filename += ".csv"
 
+                elif export_format == "pdf":
+                    generated_filename += ".pdf"
+
                 else:
-                    export_format = "xlsx"
                     generated_filename += ".xlsx"
 
-                # ------------------------------------------------
-                # Export file
-                # ------------------------------------------------
+                # -------------------------------------------
+                # Generate file
+                # -------------------------------------------
 
                 export_result = export_rows(
                     rows=export_rows_data,
@@ -759,11 +802,14 @@ def ask_business(request: AskRequest):
                     title=(
                         f"{dataset_stem} Report"
                     ),
+                    chart=result.get(
+                        "chart"
+                    ),
                 )
 
-                # ------------------------------------------------
-                # Export successful
-                # ------------------------------------------------
+                # -------------------------------------------
+                # Attach download information
+                # -------------------------------------------
 
                 if export_result.get(
                     "success"
@@ -792,34 +838,36 @@ def ask_business(request: AskRequest):
                         ] = export_result
 
                         response[
-                            "answer"
-                        ] = (
-                            result.get(
-                                "answer",
-                                "",
-                            )
-                            + "\n\n"
-                            + "Download ready: "
-                            + filename
-                        )
+                            "export_requested"
+                        ] = export_requested
+
+                        response[
+                            "export_format"
+                        ] = export_format
 
                 else:
 
                     response[
                         "export_error"
                     ] = export_result.get(
-                        "message",
-                        "Export failed.",
+                        "error",
+                        export_result.get(
+                            "message",
+                            "Report generation failed.",
+                        ),
                     )
 
             else:
 
+                # No rows means there is nothing
+                # useful to download.
                 response[
-                    "export_error"
-                ] = (
-                    "There are no matching "
-                    "rows to export."
-                )
+                    "download_url"
+                ] = None
+
+                response[
+                    "download_filename"
+                ] = None
         return response
 
     except HTTPException:
