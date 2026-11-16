@@ -1,0 +1,497 @@
+﻿"""
+Universal Query Understanding Engine.
+
+Responsibilities:
+- Understand natural-language and Hinglish business queries.
+- Resolve metric names against the uploaded dataset schema.
+- Produce a structured query plan.
+- Preserve follow-up context when supplied.
+- Never calculate numeric results.
+
+Actual analytics must remain in deterministic Python/SQL engines.
+"""
+
+import json
+import re
+from typing import Any, Dict, List, Optional
+
+from .metric_registry import (
+    resolve_metric,
+    resolve_derived_metric,
+)
+from .query_models import (
+    normalize_query_plan,
+    validate_query_plan,
+)
+
+
+SYSTEM_INSTRUCTIONS = """
+You are a Universal Query Understanding Engine for business datasets.
+
+Your task is to convert the user's question into a structured query plan.
+
+You are NOT a calculator.
+
+Never calculate:
+- Sales
+- Profit
+- Quantity
+- GST
+- Percentages
+- Averages
+- Rankings
+- Comparisons
+
+Actual calculations are performed by deterministic Python/SQL engines.
+
+RULES:
+
+1. Understand natural English, spelling mistakes and Hindi/Hinglish.
+
+2. Preserve the user's intended meaning.
+
+3. Never invent dataset columns.
+
+4. Never invent entity names.
+
+5. Identify:
+   - intent
+   - metrics
+   - aggregation
+   - grouping dimensions
+   - filters
+   - date ranges
+   - ranking direction
+   - comparison type
+   - comparison periods
+   - requested output fields
+
+6. Multiple metrics must be represented separately.
+
+7. Distinguish these operations:
+   - aggregate
+   - group_aggregate
+   - ranking
+   - comparison
+   - filter
+   - projection
+   - lookup
+   - count
+   - search
+
+8. Distinguish comparison types:
+   - date_period
+   - category
+   - product
+   - customer
+   - HSN
+   - selected_vs_remaining
+   - unknown
+
+9. For percentage questions, identify the intended numerator
+   and denominator when possible.
+
+10. If the denominator is ambiguous, request clarification.
+
+10a. IMPORTANT: If a requested percentage metric already exists as a source column in the supplied schema, treat it as a direct column metric. Use the requested aggregation, such as average. Do NOT request a numerator or denominator for an existing percentage column. Request denominator clarification only for derived percentage metrics that must be calculated from other columns, such as profit margin.
+
+11. For follow-up queries, use the supplied previous context.
+    Never invent missing context.
+
+12. If the requested concept is unavailable in the schema,
+    mark it unavailable instead of substituting another column.
+
+13. Return JSON only.
+"""
+
+
+class QueryUnderstandingError(Exception):
+    """Raised when query understanding cannot produce a valid plan."""
+
+
+def _schema_columns(schema: Any) -> List[str]:
+    columns = []
+
+    if not isinstance(schema, list):
+        return columns
+
+    for item in schema:
+        if isinstance(item, str):
+            columns.append(item)
+            continue
+
+        if isinstance(item, dict):
+            value = (
+                item.get("source_column")
+                or item.get("column")
+                or item.get("name")
+            )
+
+            if value:
+                columns.append(str(value))
+
+    return list(dict.fromkeys(columns))
+
+
+def _schema_description(schema: Any) -> List[Dict[str, str]]:
+    result = []
+
+    if not isinstance(schema, list):
+        return result
+
+    for item in schema:
+        if isinstance(item, dict):
+            column = (
+                item.get("source_column")
+                or item.get("column")
+                or item.get("name")
+            )
+
+            if not column:
+                continue
+
+            result.append({
+                "column": str(column),
+                "data_type": str(item.get("data_type") or ""),
+            })
+
+        elif isinstance(item, str):
+            result.append({
+                "column": item,
+                "data_type": "",
+            })
+
+    return result
+
+
+def _parse_json_response(response: Any) -> Dict[str, Any]:
+    content = (
+        response.content
+        if hasattr(response, "content")
+        else str(response)
+    )
+
+    if isinstance(content, list):
+        content = "\n".join(
+            str(part.get("text", ""))
+            if isinstance(part, dict)
+            else str(part)
+            for part in content
+        )
+
+    content = str(content).strip()
+
+    # Remove common markdown JSON fences.
+    content = re.sub(
+        r"^```(?:json)?\s*",
+        "",
+        content,
+        flags=re.IGNORECASE,
+    )
+
+    content = re.sub(r"\s*```$", "", content)
+
+    try:
+        parsed = json.loads(content)
+
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+
+        if not match:
+            raise QueryUnderstandingError(
+                "LLM did not return valid JSON"
+            )
+
+        try:
+            parsed = json.loads(match.group(0))
+
+        except json.JSONDecodeError as exc:
+            raise QueryUnderstandingError(
+                "LLM JSON response could not be parsed"
+            ) from exc
+
+    if not isinstance(parsed, dict):
+        raise QueryUnderstandingError(
+            "LLM response must be a JSON object"
+        )
+
+    return parsed
+
+
+def _resolve_metrics(
+    metric_names: List[str],
+    columns: List[str],
+    denominator_policy: Optional[str] = None,
+) -> Dict[str, Any]:
+
+    resolved = []
+    unavailable = []
+    seen = set()
+
+    for name in metric_names:
+        if not isinstance(name, str) or not name.strip():
+            continue
+
+        derived = resolve_derived_metric(
+            name,
+            columns,
+            denominator_policy=denominator_policy,
+        )
+
+        if derived is not None:
+            key = derived.get("key")
+
+            if key not in seen:
+                seen.add(key)
+
+                if derived.get("status") == "OK":
+                    resolved.append(derived)
+                else:
+                    unavailable.append({
+                        "requested": name,
+                        "reason": derived.get("reason"),
+                        "status": derived.get("status"),
+                        "available_denominators": derived.get(
+                            "available_denominators", []
+                        ),
+                    })
+
+            continue
+
+        item = resolve_metric(name, columns)
+
+        if item is None:
+            unavailable.append({
+                "requested": name,
+                "reason": "Metric is not recognized",
+            })
+            continue
+
+        key = item.get("key")
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        if item.get("status") == "OK":
+            resolved.append(item)
+        else:
+            unavailable.append({
+                "requested": name,
+                "reason": item.get("reason"),
+            })
+
+    return {
+        "metrics": resolved,
+        "unavailable": unavailable,
+        "status": "OK" if not unavailable else "PARTIAL",
+    }
+
+
+def understand_query(
+    question: str,
+    schema: Any,
+    llm: Any,
+    conversation_context: Optional[Dict[str, Any]] = None,
+    dataset_name: Optional[str] = None,
+    denominator_policy: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Understand a user query and produce a normalized plan.
+
+    Parameters
+    ----------
+    question:
+        Current user query.
+
+    schema:
+        Actual uploaded dataset schema.
+
+    llm:
+        Existing LangChain-compatible LLM object.
+
+    conversation_context:
+        Optional previous-query context supplied by the caller.
+
+    dataset_name:
+        Optional dataset filename.
+
+    denominator_policy:
+        Explicit denominator convention, e.g. taxable_sales or sales.
+    """
+
+    original_question = str(question or "").strip()
+
+    if not original_question:
+        return {
+            "status": "NEEDS_CLARIFICATION",
+            "reason": "Empty query",
+            "operation": None,
+            "metrics": [],
+            "filters": [],
+        }
+
+    if llm is None or not hasattr(llm, "invoke"):
+        raise QueryUnderstandingError(
+            "A valid LLM object with invoke() is required"
+        )
+
+    columns = _schema_columns(schema)
+
+    if not columns:
+        return {
+            "status": "DATA_NOT_AVAILABLE",
+            "reason": "Dataset schema is empty",
+            "operation": None,
+            "metrics": [],
+            "filters": [],
+        }
+
+    context = conversation_context or {}
+
+    prompt_data = {
+        "dataset_name": dataset_name or "Uploaded dataset",
+        "available_columns": _schema_description(schema),
+        "previous_context": context,
+        "user_question": original_question,
+        "required_json": {
+            "status": "OK",
+            "operation": "aggregate",
+            "intent": "aggregate",
+            "metrics": ["sales"],
+            "aggregate_function": "sum",
+            "aggregate_column": None,
+            "group_by": None,
+            "filters": [],
+            "time": None,
+            "comparison_type": None,
+            "comparison": None,
+            "ranking": None,
+            "denominator_policy": None,
+            "requested_columns": [],
+            "needs_clarification": False,
+            "clarification_question": None,
+            "reason": None,
+            "canonical_query": original_question,
+        },
+    }
+
+    prompt = (
+        SYSTEM_INSTRUCTIONS
+        + "\n\nINPUT:\n"
+        + json.dumps(prompt_data, ensure_ascii=False, default=str)
+    )
+
+    try:
+        raw_plan = _parse_json_response(
+            llm.invoke(prompt)
+        )
+
+    except QueryUnderstandingError:
+        raise
+
+    except Exception as exc:
+        raise QueryUnderstandingError(
+            f"LLM invocation failed: {exc}"
+        ) from exc
+
+    needs_clarification = bool(
+        raw_plan.get("needs_clarification")
+    )
+
+    if needs_clarification:
+        return {
+            **raw_plan,
+            "status": "NEEDS_CLARIFICATION",
+            "original_question": original_question,
+            "metrics": [],
+            "filters": raw_plan.get("filters") or [],
+        }
+
+    raw_metrics = raw_plan.get("metrics") or []
+
+    if isinstance(raw_metrics, str):
+        raw_metrics = [raw_metrics]
+
+    if not isinstance(raw_metrics, list):
+        raise QueryUnderstandingError(
+            "LLM metrics must be a list"
+        )
+
+    metric_resolution = _resolve_metrics(
+        raw_metrics,
+        columns,
+        denominator_policy=(
+            denominator_policy
+            or raw_plan.get("denominator_policy")
+        ),
+    )
+
+    raw_plan["metrics"] = [
+        item["key"]
+        for item in metric_resolution["metrics"]
+    ]
+
+    raw_plan["resolved_metrics"] = (
+        metric_resolution["metrics"]
+    )
+
+    raw_plan["unavailable_metrics"] = (
+        metric_resolution["unavailable"]
+    )
+
+    if metric_resolution["unavailable"]:
+        raw_plan["status"] = (
+            "NEEDS_CLARIFICATION"
+            if any(
+                item.get("status") == "NEEDS_CLARIFICATION"
+                for item in metric_resolution["unavailable"]
+            )
+            else "DATA_NOT_AVAILABLE"
+        )
+
+        raw_plan["reason"] = (
+            "One or more requested metrics could not be resolved"
+        )
+
+    else:
+        raw_plan["status"] = "OK"
+
+    aggregate_column = raw_plan.get("aggregate_column")
+
+    if not aggregate_column and len(metric_resolution["metrics"]) == 1:
+        resolved = metric_resolution["metrics"][0]
+
+        if resolved.get("kind") == "column":
+            raw_plan["aggregate_column"] = resolved.get("column")
+
+    normalized, structural_errors = normalize_query_plan(
+        raw_plan
+    )
+
+    normalized["original_question"] = original_question
+    normalized["resolved_metrics"] = (
+        metric_resolution["metrics"]
+    )
+    normalized["unavailable_metrics"] = (
+        metric_resolution["unavailable"]
+    )
+
+    schema_errors = validate_query_plan(
+        normalized,
+        columns,
+    )
+
+    all_errors = list(dict.fromkeys(
+        structural_errors + schema_errors
+    ))
+
+    if all_errors:
+        normalized["status"] = "NEEDS_CLARIFICATION"
+        normalized["validation_errors"] = all_errors
+        normalized["reason"] = (
+            "Query plan contains invalid dataset references"
+        )
+
+    return normalized

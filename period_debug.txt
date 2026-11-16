@@ -1,0 +1,30 @@
+FILE: C:\Users\91930\Desktop\project\tally-employee-agent\frontend\src\App.jsx | LINE: 48
+period: result.period_label || null,
+
+FILE: C:\Users\91930\Desktop\project\tally-employee-agent\frontend\src\components\charts\ChartRenderer.jsx | LINE: 100
+<strong>Selected period: {selectedPoint.label}</strong>
+
+FILE: C:\Users\91930\Desktop\project\tally-employee-agent\frontend\src\components\chat\ChatPanel.jsx | LINE: 359
+{rich.period && <span>Period: {rich.period}</span>}
+
+FILE: C:\Users\91930\Desktop\project\tally-employee-agent\frontend\src\components\dashboard\Dashboard.jsx | LINE: 238
+series.map((s) => ({ Period: s.label, Sales: s.sales, ...(cols.profit ? { Profit: s.profit } : {}), Records: s.count })));
+
+FILE: C:\Users\91930\Desktop\project\tally-employee-agent\frontend\src\components\dashboard\QueryView.jsx | LINE: 36
+const answer = String(data?.answer || r.engine_answer || "").trim();
+
+FILE: C:\Users\91930\Desktop\project\tally-employee-agent\frontend\src\components\dashboard\QueryView.jsx | LINE: 180
+: { label: "Records analysed", value: analysed, note: r.period_label ? `Period: ${r.period_label}` : "From your uploaded file", icon: FileText };
+
+FILE: C:\Users\91930\Desktop\project\tally-employee-agent\frontend\src\components\dashboard\QueryView.jsx | LINE: 182
+if (items.length < 4 && groups) items.push({ label: "Records analysed", value: analysed, note: r.period_label ? `Period: ${r.period_label}` : "From your uploaded file", icon: FileText });
+
+FILE: C:\Users\91930\Desktop\project\tally-employee-agent\frontend\src\components\dashboard\QueryView.jsx | LINE: 437
+const textAnswer = String(data?.answer || r.engine_answer || "");
+
+FILE: C:\Users\91930\Desktop\project\tally-employee-agent\frontend\src\components\dashboard\QueryView.jsx | LINE: 464
+{!hasRows && !spec && String(data?.answer || r.engine_answer || "").trim() && (
+
+FILE: C:\Users\91930\Desktop\project\tally-employee-agent\frontend\src\components\dashboard\QueryView.jsx | LINE: 470
+{String(data?.answer || r.engine_answer || "")
+

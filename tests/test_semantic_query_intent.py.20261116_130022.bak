@@ -1,0 +1,137 @@
+"""Regression tests for explicit formula completeness and PartyType grouping."""
+import unittest
+
+import pandas as pd
+
+from services import semantic_query_service as sem
+
+
+class SemanticQueryIntentTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.df = pd.DataFrame([
+            {"PartyType": "B2B Dealer", "InvoiceNo": "I-1", "InvoiceTotal": 110.0,
+             "TaxableAmount": 100.0, "Qty": 2, "UnitPrice": 999.0},
+            {"PartyType": "B2B Dealer", "InvoiceNo": "I-2", "InvoiceTotal": 220.0,
+             "TaxableAmount": 200.0, "Qty": 4, "UnitPrice": 999.0},
+            {"PartyType": "Retail Customer", "InvoiceNo": "I-3", "InvoiceTotal": 330.0,
+             "TaxableAmount": 300.0, "Qty": 3, "UnitPrice": 999.0},
+        ])
+
+    def make_plan(self):
+        return {
+            "kind": "data",
+            "metrics": [
+                {"alias": "Invoice Total", "column": "InvoiceTotal", "agg": "sum"},
+                {"alias": "Invoice Count", "column": "InvoiceNo", "agg": "nunique"},
+                {"alias": "Taxable Amount", "column": "TaxableAmount", "agg": "sum"},
+                {"alias": "Quantity", "column": "Qty", "agg": "sum"},
+            ],
+            "derived": [
+                {"alias": "Average Invoice Value", "numerator": "Invoice Total",
+                 "denominator": "Invoice Count", "multiply": 1},
+                {"alias": "Weighted Taxable Price", "numerator": "Taxable Amount",
+                 "denominator": "Quantity", "multiply": 1},
+            ],
+            "filters": [], "having": [], "group_by": ["PartyType"],
+            "time_grain": None, "date_column": None, "add_change": False,
+            "include_share": False, "order_by": "Average Invoice Value",
+            "direction": "desc", "limit": None,
+            "intent": "two derived metrics by PartyType", "metric_reasoning": "explicit formulas",
+        }
+
+    def test_formula_requirements_detect_both_explicit_formulas(self):
+        q = ("Across the dataset for each PartyType calculate Average Invoice Value "
+             "and Quantity-Weighted Average Taxable Price per Unit")
+        reqs = sem._requested_formula_requirements(q, self.df)
+        self.assertEqual(len(reqs), 2)
+        self.assertEqual(reqs[0]["metrics"], [("InvoiceTotal", "sum"), ("InvoiceNo", "nunique")])
+        self.assertEqual(reqs[1]["metrics"], [("TaxableAmount", "sum"), ("Qty", "sum")])
+
+    def test_complete_plan_passes_formula_contract_and_calculates_by_partytype(self):
+        q = ("Across the dataset for each PartyType calculate Average Invoice Value "
+             "and Quantity-Weighted Average Taxable Price per Unit")
+        raw = self.make_plan()
+        clean, error = sem._validate(raw, self.df)
+        self.assertIsNone(error)
+        self.assertIsNone(sem._formula_plan_error(raw, clean, q, self.df))
+        records, totals, group_count, source_rows, _ = sem._execute(self.df, clean)
+        self.assertEqual(group_count, 2)
+        self.assertEqual(source_rows, 3)
+        dealer = next(r for r in records if r["PartyType"] == "B2B Dealer")
+        self.assertAlmostEqual(dealer["Average Invoice Value"], 165.0, places=2)
+        self.assertAlmostEqual(dealer["Weighted Taxable Price"], 50.0, places=2)
+        self.assertNotIn("Share %", dealer)
+
+    def test_partytype_each_request_requires_partytype_grouping(self):
+        q = ("Across the dataset for each PartyType calculate Average Invoice Value "
+             "and Quantity-Weighted Average Taxable Price per Unit")
+        raw = self.make_plan()
+        raw["group_by"] = []
+        clean, error = sem._validate(raw, self.df)
+        self.assertIsNone(error)
+        self.assertIn("group_by must include 'PartyType'", sem._formula_plan_error(raw, clean, q, self.df))
+
+    def test_incomplete_formula_plan_is_rejected(self):
+        q = ("Across the dataset for each PartyType calculate Average Invoice Value "
+             "and Quantity-Weighted Average Taxable Price per Unit")
+        raw = self.make_plan()
+        raw["derived"] = raw["derived"][:1]
+        clean, error = sem._validate(raw, self.df)
+        self.assertIsNone(error)
+        self.assertIn("Quantity-Weighted", sem._formula_plan_error(raw, clean, q, self.df))
+
+    def test_weighted_taxable_price_cannot_be_replaced_with_unit_price_mean(self):
+        q = "Quantity-Weighted Average Taxable Price per Unit by each PartyType"
+        raw = self.make_plan()
+        raw["metrics"] = [m for m in raw["metrics"] if m["column"] != "TaxableAmount"]
+        raw["metrics"].append({"alias": "Unit Price", "column": "UnitPrice", "agg": "mean"})
+        raw["derived"] = [d for d in raw["derived"] if d["alias"] != "Weighted Taxable Price"]
+        clean, error = sem._validate(raw, self.df)
+        self.assertIsNone(error)
+        self.assertIn("sum(TaxableAmount)", sem._formula_plan_error(raw, clean, q, self.df))
+
+    def test_derived_formula_answer_uses_executed_plan_not_llm(self):
+        q = (
+            "Across the dataset for each PartyType calculate Average Invoice Value "
+            "and Quantity-Weighted Average Taxable Price per Unit"
+        )
+        raw = self.make_plan()
+        clean, error = sem._validate(raw, self.df)
+        self.assertIsNone(error)
+
+        self.assertIsNone(sem._formula_plan_error(raw, clean, q, self.df))
+        records, totals, group_count, _, span = sem._execute(self.df, clean)
+
+        answer = sem._write_answer(
+            q, clean, records, totals, group_count, span, clean["notes"]
+        )
+
+        self.assertIn(
+            "Average Invoice Value = sum(InvoiceTotal) / nunique(InvoiceNo)",
+            answer,
+        )
+        self.assertIn(
+            "Weighted Taxable Price = sum(TaxableAmount) / sum(Qty)",
+            answer,
+        )
+        self.assertIn("Calculated separately by PartyType", answer)
+        self.assertNotIn("GrossAmount", answer)
+
+    def test_share_is_opt_in_only(self):
+        raw = self.make_plan()
+        raw["derived"] = []
+        raw["metrics"] = [{"alias": "Taxable", "column": "TaxableAmount", "agg": "sum"}]
+        clean, error = sem._validate(raw, self.df)
+        self.assertIsNone(error)
+        records, *_ = sem._execute(self.df, clean)
+        self.assertTrue(all("Share %" not in row for row in records))
+        raw["include_share"] = True
+        clean, error = sem._validate(raw, self.df)
+        self.assertIsNone(error)
+        records, *_ = sem._execute(self.df, clean)
+        self.assertTrue(all("Share %" in row for row in records))
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

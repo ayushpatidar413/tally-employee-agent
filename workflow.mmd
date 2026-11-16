@@ -1,0 +1,22 @@
+﻿flowchart TD
+    A["React Frontend - Vite / App.jsx"]
+    B["FastAPI Backend - api.py"]
+    C["LangGraph Dynamic Workflow"]
+    D["Query Understanding - dynamic_nodes.py"]
+    E["Query Execution - dynamic_query_executor.py"]
+    F["Analytics - analytics_extra.py"]
+    G["Dataset Context Service"]
+    H["Uploaded Excel / CSV Dataset"]
+    I["Result Formatter"]
+    J["Frontend: Chat / Report / Charts / History"]
+
+    A -->|HTTP REST| B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    G --> H
+    D --> G
+    F --> I
+    I --> B
+    B --> J

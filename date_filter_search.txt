@@ -1,0 +1,46 @@
+﻿C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_engine.py:279: notes.append("Period scope: " + label)
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_engine.py:310: notes.append("Period scope: " + label)
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_engine.py:356: notes.append("Period scope: " + label)
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_engine_before_universal_priority.py:279: notes.append("Period scope: " + label)
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_engine_before_universal_priority.py:310: notes.append("Period scope: " + label)
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_engine_before_universal_priority.py:356: notes.append("Period scope: " + label)
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.before_result_fix.py:1: """analytics_extra v3 - deterministic handlers that run BEFORE the LLM planner / older pipeline.
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.before_result_fix.py:318: notes.append("Scope: %s (%s to %s)" % (name, d[dc].min().date(), d[dc].max().date()))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.before_result_fix.py:324: notes.append("Date range: %s to %s" % (a.date(), b.date()))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.before_result_fix.py:342: notes.append("Scope: %s %d to %s %d" % (MN[m1 - 1].title(), y1, MN[m2 - 1].title(), y2))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.before_result_fix.py:354: notes.append("Scope: Q%d to Q%d %s" % (q1, q2, g))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.before_result_fix.py:357: notes.append("Scope: Q%d to Q%d" % (q1, q2))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.before_result_fix.py:364: notes.append("Scope: %d to %d" % (y1, y2))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.before_result_fix.py:390: notes.append("Scope: " + " ".join(lab))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.before_result_fix.py:419: notes.append("Scope: %s %s = %s%s" % (word.title(), rel.group(2), sel, tail))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.before_result_fix.py:1328: "reason": "Deterministic analytics_extra (LLM skipped)"}
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.py:1: """analytics_extra v3 - deterministic handlers that run BEFORE the LLM planner / older pipeline.
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.py:358: notes.append("Scope: %s (%s to %s)" % (name, d[dc].min().date(), d[dc].max().date()))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.py:364: notes.append("Date range: %s to %s" % (a.date(), b.date()))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.py:382: notes.append("Scope: %s %d to %s %d" % (MN[m1 - 1].title(), y1, MN[m2 - 1].title(), y2))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.py:394: notes.append("Scope: Q%d to Q%d %s" % (q1, q2, g))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.py:397: notes.append("Scope: Q%d to Q%d" % (q1, q2))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.py:404: notes.append("Scope: %d to %d" % (y1, y2))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.py:430: notes.append("Scope: " + " ".join(lab))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.py:459: notes.append("Scope: %s %s = %s%s" % (word.title(), rel.group(2), sel, tail))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra.py:1953: "reason": "Deterministic analytics_extra (LLM skipped)"}
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_my_version.py:1: """analytics_extra v3 - deterministic handlers that run BEFORE the LLM planner / older pipeline.
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_my_version.py:151: notes.append("Date range: %s to %s" % (a.date(), b.date()))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_my_version.py:167: notes.append("Scope: " + " ".join(lab))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_my_version.py:861: "reason": "Deterministic analytics_extra (LLM skipped)"}
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev.py:1: """analytics_extra v3 - deterministic handlers that run BEFORE the LLM planner / older pipeline.
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev.py:152: notes.append("Date range: %s to %s" % (a.date(), b.date()))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev.py:168: notes.append("Scope: " + " ".join(lab))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev.py:893: "reason": "Deterministic analytics_extra (LLM skipped)"}
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev3.py:1: """analytics_extra v3 - deterministic handlers that run BEFORE the LLM planner / older pipeline.
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev3.py:321: notes.append("Scope: %s (%s to %s)" % (name, d[dc].min().date(), d[dc].max().date()))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev3.py:327: notes.append("Date range: %s to %s" % (a.date(), b.date()))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev3.py:345: notes.append("Scope: %s %d to %s %d" % (MN[m1 - 1].title(), y1, MN[m2 - 1].title(), y2))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev3.py:357: notes.append("Scope: Q%d to Q%d %s" % (q1, q2, g))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev3.py:360: notes.append("Scope: Q%d to Q%d" % (q1, q2))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev3.py:367: notes.append("Scope: %d to %d" % (y1, y2))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev3.py:393: notes.append("Scope: " + " ".join(lab))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev3.py:422: notes.append("Scope: %s %s = %s%s" % (word.title(), rel.group(2), sel, tail))
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\analytics_extra_prev3.py:1416: "reason": "Deterministic analytics_extra (LLM skipped)"}
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\dynamic_workflow.py:3: from graph.analytics_extra import wrap_extra, wrap_planner
+C:\Users\91930\Desktop\project\tally-employee-agent\graph\dynamic_workflow_before_planner_skip.py:3: from graph.analytics_extra import wrap_extra

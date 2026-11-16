@@ -8,3 +8,7 @@ langgraph
 langchain-groq
 sqlalchemy
 streamlit
+# Conversation memory dependencies
+redis
+pinecone
+sentence-transformers

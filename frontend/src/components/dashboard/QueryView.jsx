@@ -1,0 +1,500 @@
+﻿import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft, BarChart3, ChevronDown, Download, FileText, Hash, Layers,
+  Package, RefreshCw, Search, ShoppingCart, Sparkles, TrendingUp, Users, X,
+} from "lucide-react";
+import ChartRenderer from "../charts/ChartRenderer.jsx";
+import { FullscreenButton } from "../common.jsx";
+import { API, RUPEE, downloadCsv, formatMoney, formatNumber, formatReportValue, isNumericColumn, numericValue } from "../../lib/helpers.js";
+import { KpiCard } from "./widgets.jsx";
+
+/* ============================================================ constants */
+export const CHART_TYPES = [
+  ["bar", "Bar"], ["stacked-bar", "Stacked Bar"], ["line", "Line"], ["area", "Area"], ["stacked-area", "Stacked Area"],
+  ["pie", "Pie"], ["donut", "Donut"], ["scatter", "Scatter"], ["bubble", "Bubble"], ["heatmap", "Heatmap"],
+  ["funnel", "Funnel"], ["treemap", "Treemap"], ["radar", "Radar"], ["waterfall", "Waterfall"], ["boxplot", "Box Plot"],
+];
+const TYPE_LABEL = Object.fromEntries(CHART_TYPES);
+const STORE_KEY = "vyapar-chart-types-v2";
+const TIME_COL = /period|month|quarter|year|date|week|day/i;
+const SKIP_SERIES = /share|change|rank|row_?number|^id$/i;
+const MONEY_LABEL = /sales|profit|revenue|amount|gst|tax|discount|cost|price|value|turnover/i;
+const NOT_MONEY = /count|quantity|qty|units|%|margin|share|number/i;
+const isMoney = (label) => MONEY_LABEL.test(label) && !NOT_MONEY.test(label);
+
+/* ====================================================== response helpers */
+export function pickRows(data) {
+  const r = data?.result || {};
+  const rows = Array.isArray(r.rows) && r.rows.length ? r.rows : Array.isArray(r.table) ? r.table : [];
+  return rows.filter((x) => x && typeof x === "object" && !Array.isArray(x));
+}
+
+/** "na" = information not available, "answer" = text only, "result" = rows / chart. */
+export function classifyResponse(data) {
+  const r = data?.result || {};
+  const rows = pickRows(data);
+  const answer = String(data?.answer || r.engine_answer || "").trim();
+  const hasSpec = Boolean(r.chart_spec?.data?.length || data?.chart?.data?.length);
+
+  // A deterministic fallback may produce a valid business answer while an
+  // old/stale status field still says DATA_NOT_AVAILABLE. Prefer real result
+  // rows/charts, then a substantive numeric answer, over that stale status.
+  if (rows.length || hasSpec) return "result";
+  const hasBusinessValue = /(?:₹|\b(?:sales|revenue|profit|quantity|qty|invoice(?:s| count)?|customers?|records analysed)\b)\s*:?\s*(?:₹\s*)?[-+]?\d[\d,]*(?:\.\d+)?/i.test(answer)
+    || /\b(?:total sales|total profit|total quantity|sales summary)\b/i.test(answer) && /\d/.test(answer);
+  if (hasBusinessValue) return "answer";
+
+  const explicitUnavailable = r.not_available === true
+    || r.status === "DATA_NOT_AVAILABLE"
+    || /DATA_NOT_AVAILABLE/i.test(answer)
+    || /information is not available in the uploaded file/i.test(answer);
+  if (explicitUnavailable) return "na";
+
+  // Plain-language replies and quota/network errors are not proof that the
+  // requested data is absent. Render them as answers instead of the NA page.
+  if (answer) return "answer";
+  return "na";
+}
+
+/* ----------------------------------------------- rows -> chart-ready data */
+export function deriveChart(rows, spec, title) {
+  const src = spec?.data?.length ? spec.data : rows;
+  if (!src || !src.length) return null;
+  const cols = [...new Set(src.slice(0, 50).flatMap((r) => Object.keys(r || {})))].filter((c) => !c.startsWith("__"));
+  const numeric = cols.filter((c) => !TIME_COL.test(c) && !SKIP_SERIES.test(c) && c !== "label" && isNumericColumn(src, c));
+  const text = cols.filter((c) => !numeric.includes(c) && !SKIP_SERIES.test(c) && c !== "label");
+  const mk = (key) => ({ key, field: key, label: key, prefix: isMoney(key) ? RUPEE : "" });
+
+  const wantedX = spec?.x || spec?.x_field || spec?.group_by;
+  let x = wantedX && cols.includes(wantedX) ? wantedX : text.find((c) => TIME_COL.test(c)) || text[0];
+
+  // period x product (two text columns + a measure) -> pivot into one series per product
+  if (text.length === 2 && numeric.length >= 1) {
+    const timeCol = text.find((c) => TIME_COL.test(c));
+    const dim = timeCol ? text.find((c) => c !== timeCol) : text[1];
+    x = timeCol || text[0];
+    const measure = numeric[0];
+    const totals = new Map();
+    src.forEach((r) => totals.set(String(r[dim]), (totals.get(String(r[dim])) || 0) + numericValue(r[measure])));
+    const keys = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+    const byX = new Map();
+    src.forEach((r) => {
+      const k = String(r[x]);
+      const row = byX.get(k) || { label: k };
+      const d = String(r[dim]);
+      if (keys.includes(d)) row[d] = (row[d] || 0) + numericValue(r[measure]);
+      byX.set(k, row);
+    });
+    const data = [...byX.values()].sort((a, b) => (a.label < b.label ? -1 : 1));
+    if (data.length < 1 || !keys.length) return null;
+    return { data, series: keys.map((k) => ({ key: k, field: k, label: k, prefix: isMoney(measure) ? RUPEE : "" })), xKey: x, title: `${measure} by ${x} and ${dim}`, timeLike: Boolean(timeCol) };
+  }
+  if (text.length > 2 && !spec?.data?.length) {
+    const priority = [/^(grossamount|gross amount|sales|total sales|revenue|invoice value)$/i, /^(profit|net profit)$/i, /^(qty|quantity|total qty|total quantity|units)$/i, /^(invoicetotal|invoice total|total amount|amount)$/i];
+    const metrics = [];
+    for (const p of priority) { const c = cols.find((k) => p.test(k.trim()) && isNumericColumn(src, k)); if (c && !metrics.includes(c)) metrics.push(c); }
+    if (!metrics.length) return null;
+    const dateCol = cols.find((c) => /^(date|invoice date|transaction date|period|month)$/i.test(c.trim()));
+    const dim = dateCol || cols.find((c) => /^(category|product|partyname|party name|customer|department)$/i.test(c.trim())) || text[0];
+    const grouped = new Map();
+    src.forEach((row) => {
+      let label = String(row[dim] ?? 'Unknown').trim();
+      if (dateCol && label !== 'Unknown') { const d = new Date(label); if (!Number.isNaN(d.getTime())) label = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+      if (!grouped.has(label)) grouped.set(label, { label });
+      const target = grouped.get(label); metrics.forEach((m) => target[m] = (target[m] || 0) + numericValue(row[m]));
+    });
+    let data = [...grouped.values()].filter((r) => r.label && r.label !== 'Unknown');
+    data.sort((a,b) => String(a.label).localeCompare(String(b.label)));
+    if (data.length > 24 && !dateCol) data = data.sort((a,b) => numericValue(b[metrics[0]]) - numericValue(a[metrics[0]])).slice(0,12);
+    if (!data.length) return null;
+    return { data, series: metrics.map((key) => ({ key, field:key, label:key, prefix:isMoney(key) ? RUPEE : '' })), xKey:'label', title:`${metrics.slice(0,2).join(' & ')} by ${dim}`, timeLike:Boolean(dateCol) };
+  }
+  if (!x && !numeric.length) return null;
+
+  let series = [];
+  if (spec?.series?.length) {
+    series = spec.series.map((s) => (typeof s === "string" ? s : s.key || s.field || s.column)).filter((k) => k && cols.includes(k)).map(mk);
+  }
+  if (!series.length) series = numeric.slice(0, 6).map(mk);
+  if (!series.length) return null;
+  const data = src.map((r, i) => ({ ...r, label: String(r[x] ?? r.label ?? r.period ?? `#${i + 1}`) }));
+  return { data, series, xKey: x, title: spec?.title && spec.title.length < 70 ? spec.title : title, timeLike: Boolean(x && TIME_COL.test(x)) };
+}
+
+/* ----------------------------------------------------------- KPI cards */
+const KPI_TONES = ["blue", "green", "orange", "purple"];
+function kpiIcon(label) {
+  if (/sales|revenue|amount|turnover/i.test(label)) return ShoppingCart;
+  if (/profit|margin/i.test(label)) return BarChart3;
+  if (/qty|quantity|units/i.test(label)) return Package;
+  if (/invoice|count|transactions/i.test(label)) return FileText;
+  if (/customer|party|client/i.test(label)) return Users;
+  if (/growth|change/i.test(label)) return TrendingUp;
+  return Hash;
+}
+function fmtKpi(label, value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "\u2014";
+  if (/%/.test(label)) return `${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2 })}%`;
+  return isMoney(label) ? formatMoney(value) : formatNumber(value);
+}
+
+
+/** Fallback KPI extraction for valid text-only answers. Structured data wins. */
+export function deriveAnswerKpis(answer) {
+  const text = String(answer || "");
+  if (!text.trim() || /information is not available in the uploaded file/i.test(text)) return [];
+  const out = [];
+  const metricPattern = /([A-Za-z][A-Za-z _%()-]{1,38}?)\s*:\s*(?:₹\s*)?([-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?)/g;
+  let match;
+  while ((match = metricPattern.exec(text)) && out.length < 4) {
+    let label = match[1].replace(/\s+/g, " ").trim();
+    label = label.replace(/^.*?\b(Sales Summary)\s*/i, "").trim();
+    if (!label || /summary|source|period|records analysed/i.test(label)) continue;
+    const raw = match[2].replace(/,/g, "").replace(/%$/, "");
+    const value = Number(raw);
+    if (!Number.isFinite(value)) continue;
+    if (out.some((item) => item.label.toLowerCase() === label.toLowerCase())) continue;
+    out.push({ label, value, note: "From the assistant's query answer", icon: kpiIcon(label) });
+  }
+  return out;
+}
+
+export function deriveKpis(data, rows) {
+  const r = data?.result || {};
+  let items = [];
+  if (r.totals && typeof r.totals === "object") {
+    items = Object.entries(r.totals).filter(([, v]) => v !== null && Number.isFinite(Number(v))).slice(0, 3).map(([k, v]) => ({ label: k, value: Number(v), note: "Total for your query" }));
+  } else if (rows.length) {
+    const cols = [...new Set(rows.slice(0, 50).flatMap((x) => Object.keys(x)))];
+    const preferred = [/^(grossamount|gross amount|sales|total sales|revenue|invoice value)$/i, /^(profit|net profit)$/i, /^(qty|quantity|total qty|total quantity|units)$/i, /^(invoicetotal|invoice total|total amount|amount)$/i];
+    for (const pattern of preferred) {
+      const c = cols.find((name) => pattern.test(name.trim()) && isNumericColumn(rows, name));
+      if (c) items.push({ label: c, value: rows.reduce((t, row) => t + numericValue(row[c]), 0), note: `Total across ${rows.length} matching records` });
+      if (items.length >= 3) break;
+    }
+  }
+  const analysed = r.filtered_rows ?? r.source_rows ?? rows.length;
+  const groups = r.number_of_groups ?? (rows.length > 1 ? rows.length : null);
+  const extra = groups && items.length < 4
+    ? { label: "Items found", value: groups, note: "Rows in this result", icon: Layers }
+    : { label: "Records analysed", value: analysed, note: r.period_label ? `Period: ${r.period_label}` : "From your uploaded file", icon: FileText };
+  items.push(extra);
+  if (items.length < 4 && groups) items.push({ label: "Records analysed", value: analysed, note: r.period_label ? `Period: ${r.period_label}` : "From your uploaded file", icon: FileText });
+  return items.slice(0, 4);
+}
+
+/* ============================================================== QueryBar */
+export function QueryBar({ value, onChange, onSubmit, loading, onClear, showClear, inputRef, placeholder }) {
+  const submit = (e) => { e.preventDefault(); if (value.trim() && !loading) onSubmit(value.trim()); };
+  return (
+    <form className="vx-querybar" onSubmit={submit}>
+      <Search size={19} className="vx-q-icon" />
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || "Ask your business question... e.g. show product wise sales with trend"}
+        aria-label="Ask a business question"
+      />
+      {(value || showClear) && (
+        <button type="button" className="vx-q-clear" onClick={onClear} title="Clear and go back to overview" aria-label="Clear"><X size={17} /></button>
+      )}
+      <button type="submit" className="vx-q-ask" disabled={loading || !value.trim()}>
+        {loading ? <RefreshCw size={17} className="spin" /> : <Sparkles size={17} />}
+        {loading ? "Analysing..." : "Ask AI"}
+      </button>
+    </form>
+  );
+}
+
+/* ============================================================ type picker */
+function ChartTypePicker({ selected, onChange }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (event) => { if (!rootRef.current?.contains(event.target)) setOpen(false); };
+    const escape = (event) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+  const activeLabel = TYPE_LABEL[selected] || "Bar";
+  return (
+    <div className="vx-chart-picker" ref={rootRef}>
+      <button type="button" className="vx-chart-picker-trigger" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <BarChart3 size={16} /> <span>Chart type</span><strong>{activeLabel}</strong><ChevronDown size={15} />
+      </button>
+      {open && (
+        <div className="vx-chart-picker-menu" role="menu" aria-label="Chart type options">
+          {CHART_TYPES.map(([id, label]) => (
+            <button type="button" role="menuitemradio" aria-checked={selected === id} key={id}
+              className={`vx-chart-picker-item ${selected === id ? "active" : ""}`}
+              onClick={() => { onChange(id); setOpen(false); }}>
+              <span className="vx-chart-picker-dot">{selected === id ? "✓" : ""}</span>{label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================== ChartDeck */
+export function ChartDeck({ rows, spec, title }) {
+  const chart = useMemo(() => deriveChart(rows, spec, title), [rows, spec, title]);
+  // Respect the chart type requested by the query service (e.g. line chart),
+  // while still resetting the selector whenever a new query result arrives.
+  const preferredType = CHART_TYPES.some(([id]) => id === spec?.type) ? spec.type : "bar";
+  const [chartType, setChartType] = useState(preferredType);
+  useEffect(() => { setChartType(preferredType); }, [rows, spec, title, preferredType]);
+  const changeType = (next) => setChartType(next);
+  if (!chart) return <div className="vx-card"><div className="vx-empty">This result has no chart-ready numbers. The report table below has the full data.</div></div>;
+
+  const points = chart.data.length;
+  const scrollable = points > 14 && ["bar", "stacked-bar", "line", "area", "stacked-area", "waterfall", "boxplot"].includes(chartType);
+  // Secondary charts are derived from this query's actual numeric fields.
+  // Prefer semantically matching metrics, then use distinct remaining metrics;
+  // never label a sales series as "Quantity" just because it is the second field.
+  const safeSeries = (Array.isArray(chart.series) ? chart.series : []).filter(
+    (s) => s && typeof s === "object" && s.key != null
+  );
+  const findMetric = (pattern, excluded = []) => safeSeries.find((s) =>
+    pattern.test(`${s.label || ""} ${s.key}`) && !excluded.includes(s.key)
+  ) || null;
+  const primaryMetric = safeSeries[0] || null;
+  const profitSeries = findMetric(/profit|margin|earning|income/i);
+  const quantitySeries = findMetric(/quantity|\bqty\b|units/i);
+  const salesSeries = findMetric(/sales|revenue|grossamount|invoice value|turnover/i);
+  const taxSeries = safeSeries.filter((s) => /gst|tax|discount|cost/i.test(`${s.label || ""} ${s.key}`));
+  const firstPair = [salesSeries, profitSeries].filter(Boolean);
+  const remaining = safeSeries.filter((s) => !firstPair.some((x) => x.key === s.key));
+  const leftSeries = firstPair.length ? firstPair : safeSeries.slice(0, Math.min(3, safeSeries.length));
+  const rightSeries = [quantitySeries, ...taxSeries].filter((s, i, a) => Boolean(s && s.key) && a.findIndex((x) => x && x.key === s.key) === i);
+  const rightFallback = remaining.length ? remaining.slice(0, 3) : safeSeries.slice(0, Math.min(3, safeSeries.length));
+  const smallChart = (heading, seriesList, type, tone) => (
+    <div className={`vx-card vx-deck-card vx-fixed-chart ${tone}`} key={heading}>
+      <div className="vx-card-head">
+        <div><h3>{heading}</h3><span className="vx-muted">{formatNumber(points)} query data points · hover for values</span></div>
+        <div className="vx-chart-head-actions"><span className="vx-chip">{TYPE_LABEL[type]} · zoom</span><FullscreenButton /></div>
+      </div>
+      {seriesList.length ? <div className="vx-deck-scroll"><div className="vx-mini-chart-inner" style={{ minWidth: points > 24 ? points * 25 : "100%" }}><ChartRenderer type={type} data={chart.data} series={seriesList} title="" /></div></div>
+        : <div className="vx-chart-empty-inline"><Layers size={18} /><span>No additional numeric metrics were returned by this query.</span></div>}
+    </div>
+  );
+
+  return (
+    <section className="vx-deck">
+      <div className="vx-card vx-deck-card vx-deck-primary">
+        <div className="vx-card-head vx-query-chart-head">
+          <div className="vx-query-chart-title">
+            <h3>{chart.title || questionTitle(title)}</h3>
+            <span className="vx-muted">
+              {formatNumber(points)} plotted points · hover for details
+            </span>
+          </div>
+
+          <div className="vx-chart-head-actions vx-query-chart-controls">
+            <ChartTypePicker
+              selected={chartType}
+              onChange={changeType}
+            />
+            <FullscreenButton />
+          </div>
+        </div>
+
+        <div className="vx-deck-scroll">
+          <div
+            style={{
+              minWidth: scrollable ? points * 46 : "100%",
+            }}
+          >
+            <ChartRenderer
+              type={chartType}
+              data={chart.data}
+              series={chart.series}
+              title=""
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="vx-deck-fixed-grid">
+        {smallChart(
+          profitSeries && salesSeries ? "Sales & Profit Comparison" : `${primaryMetric?.label || "Metric"} Trend`,
+          firstPair.length ? firstPair : (primaryMetric ? [primaryMetric] : []),
+          "line",
+          "vx-chart-tone-blue"
+        )}
+        {smallChart(
+          quantitySeries ? "Quantity / Units Analysis" : (rightSeries.length ? "Additional Query Metrics" : "Query Metric Detail"),
+          rightSeries.length ? rightSeries : rightFallback,
+          "bar",
+          "vx-chart-tone-purple"
+        )}
+      </div>
+    </section>
+  );
+}
+function questionTitle(value) { return value || "Query result"; }
+
+/* ============================================================ ReportTable */
+export function ReportTable({ rows, fileName, downloadUrl }) {
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState({ col: null, dir: 1 });
+  const [limit, setLimit] = useState(200);
+  const cols = useMemo(() => [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((c) => !c.startsWith("__")), [rows]);
+  const view = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    let list = t ? rows.filter((r) => cols.some((c) => String(r[c] ?? "").toLowerCase().includes(t))) : rows;
+    if (sort.col) {
+      const num = isNumericColumn(rows, sort.col) && !TIME_COL.test(sort.col);
+      list = [...list].sort((a, b) => (num ? numericValue(a[sort.col]) - numericValue(b[sort.col]) : String(a[sort.col] ?? "").localeCompare(String(b[sort.col] ?? ""))) * sort.dir);
+    }
+    return list;
+  }, [rows, cols, q, sort]);
+  const clickSort = (c) => setSort((s) => (s.col === c ? { col: c, dir: -s.dir } : { col: c, dir: 1 }));
+  return (
+    <section className="vx-card vx-report">
+      <div className="vx-card-head">
+        <div>
+          <h3>Generated Report</h3>
+          <span className="vx-muted">Full result for your query · click a column to sort</span>
+        </div>
+        <div className="vx-card-tools">
+          <label className="vx-table-search"><Search size={15} /><input value={q} onChange={(e) => { setQ(e.target.value); setLimit(200); }} placeholder="Search rows..." /></label>
+          <span className="vx-chip">{formatNumber(view.length)} rows</span>
+          <button type="button" className="vx-select-btn small" onClick={() => downloadCsv(`${fileName || "report"}.csv`, view)}><Download size={15} /> CSV</button>
+          {downloadUrl && <a className="vx-select-btn small" href={`${API}${downloadUrl}`} download><FileText size={15} /> Report file</a>}
+          <FullscreenButton />
+        </div>
+      </div>
+      <div className="vx-report-scroll">
+        <table>
+          <thead>
+            <tr>{cols.map((c) => (
+              <th key={c} onClick={() => clickSort(c)} className={sort.col === c ? "sorted" : ""}>
+                {c}{sort.col === c ? (sort.dir === 1 ? " \u25B2" : " \u25BC") : ""}
+              </th>
+            ))}</tr>
+          </thead>
+          <tbody>
+            {view.slice(0, limit).map((r, i) => (
+              <tr key={i}>{cols.map((c) => <td key={c}>{formatReportValue(r[c], [c, r.Part, r.Answer].filter(Boolean).join(" "))}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+        {!view.length && <div className="vx-empty">No rows match your search.</div>}
+      </div>
+      {view.length > limit && (
+        <button type="button" className="vx-link center" onClick={() => setLimit((l) => l + 500)}>Show {Math.min(500, view.length - limit)} more rows ({formatNumber(view.length - limit)} remaining)</button>
+      )}
+    </section>
+  );
+}
+
+export function deriveRowSummary(question, rows) {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const cols = [...new Set(rows.slice(0, 50).flatMap((r) => Object.keys(r || {})))];
+  const find = (re) => cols.find((c) => re.test(c.trim()) && isNumericColumn(rows, c));
+  const sales = find(/^(grossamount|gross amount|sales|total sales|revenue|invoice value|invoicetotal|invoice total)$/i);
+  const profit = find(/^(profit|net profit)$/i); const qty = find(/^(qty|quantity|total qty|total quantity|units)$/i);
+  const sum = (c) => c ? rows.reduce((t,r) => t + numericValue(r[c]),0) : null;
+  const parts = [];
+  if (sales) parts.push(`total sales ${formatMoney(sum(sales))}`);
+  if (profit) parts.push(`total profit ${formatMoney(sum(profit))}`);
+  if (qty) parts.push(`total quantity ${formatNumber(sum(qty))}`);
+  return { text: `${formatNumber(rows.length)} matching records found${question ? ` for 	“${question}”` : ''}.${parts.length ? ` Across these records: ${parts.join(', ')}.` : ' Matching records are listed below.'}` };
+}
+
+/* ============================================================== QueryView */
+export function QueryView({ question, data, datasetName, onBack }) {
+  const r = data?.result || {};
+  const rows = useMemo(() => pickRows(data), [data]);
+  const kpis = useMemo(() => (r.suppress_kpis ? [] : deriveKpis(data, rows)), [data, rows, r.suppress_kpis]);
+  const spec = r.chart_spec?.data?.length ? r.chart_spec : data?.chart?.data?.length ? data.chart : null;
+  const hasRows = rows.length > 0;
+  const normalizedQuestion = String(question || "").toLowerCase();
+
+const isListQuery =
+  /\b(unique|distinct|list|show all|details|which are|what are)\b/i.test(
+    normalizedQuestion
+  ) &&
+  !/\b(chart|trend|compare|comparison|distribution|breakdown|top\s*\d+|ranking)\b/i.test(
+    normalizedQuestion
+  );
+
+const isChartQuery =
+  /\b(chart|graph|trend|compare|comparison|distribution|breakdown|by month|month-wise|monthly|quarter-wise|year-wise|top\s*\d+|ranking)\b/i.test(
+    normalizedQuestion
+  );
+
+const shouldShowChart =
+  Boolean(spec) || (hasRows && isChartQuery && !isListQuery);
+  const textAnswer = String(data?.answer || r.engine_answer || "");
+  const answerKpis = !hasRows ? deriveAnswerKpis(textAnswer) : [];
+  return (
+    <div className="vx-queryview">
+      <div className="vx-qv-head">
+        <div className="vx-qv-head-row">
+          {onBack && <button type="button" className="vx-select-btn small" onClick={onBack}><ArrowLeft size={15} /> Back to overview</button>}
+        </div>
+        <h2>{question}</h2>
+      </div>
+
+
+      {!r.suppress_kpis && (hasRows || answerKpis.length > 0) && (
+        <div className="vx-kpis">
+          {(hasRows ? kpis : answerKpis).map((k, i) => {
+            const Icon = k.icon || kpiIcon(k.label);
+            return <KpiCard key={k.label} icon={Icon} tone={KPI_TONES[i % 4]} label={k.label} value={fmtKpi(k.label, k.value)} note={k.note} />;
+          })}
+        </div>
+      )}
+
+
+      {shouldShowChart && (
+        <ChartDeck rows={rows} spec={spec} title={question} />
+      )}
+      {hasRows && <ReportTable rows={rows} fileName={(question || "report").slice(0, 40).replace(/[^\w]+/g, "_")} downloadUrl={data?.download_url} />}
+
+      {!hasRows && !spec && String(data?.answer || r.engine_answer || "").trim() && (
+        <>
+          <style>{`.vx-answer-only{margin:18px 0 28px;padding:22px 24px;border:1px solid var(--vx-border,#263653);border-radius:18px;background:var(--vx-card,#111c31);color:var(--vx-text,#eaf0ff);box-shadow:0 12px 32px rgba(0,0,0,.12)}.vx-answer-only-head{display:flex;align-items:center;gap:10px;margin-bottom:14px;color:var(--vx-accent,#4f7cff)}.vx-answer-only-head h3{margin:0;font-size:1.05rem}.vx-answer-only-body{line-height:1.75;overflow-wrap:anywhere}.vx-answer-only-body p{margin:0 0 10px}.vx-answer-only-body p:last-child{margin-bottom:0}.vx-answer-only-source{margin-top:16px;padding-top:12px;border-top:1px solid var(--vx-border,#263653);color:var(--vx-muted,#9baaca);font-size:.82rem}`}</style>
+          <section className="vx-answer-only" aria-live="polite">
+            <div className="vx-answer-only-head"><Sparkles size={18} /><h3>Answer</h3></div>
+            <div className="vx-answer-only-body">
+              {String(data?.answer || r.engine_answer || "")
+                .replace(/^\s*DATA_NOT_AVAILABLE:\s*/i, "")
+                .split(/\n{2,}/)
+                .map((paragraph, index) => paragraph.trim() ? <p key={index}>{paragraph.trim()}</p> : null)}
+            </div>
+            {(data?.dataset?.original_filename || datasetName) && (
+              <div className="vx-answer-only-source">Source: {data?.dataset?.original_filename || datasetName}</div>
+            )}
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+
+/* ================================================================ skeleton */
+export function QuerySkeleton({ question }) {
+  return (
+    <div className="vx-queryview">
+      <div className="vx-qv-head">
+        <span className="vx-kicker">ANALYSING YOUR DATA</span>
+        <h2>{question}</h2>
+      </div>
+      <div className="vx-kpis">{[0, 1, 2, 3].map((i) => <div className="vx-skel vx-skel-kpi" key={i} />)}</div>
+      <div className="vx-skel vx-skel-chart" />
+      <div className="vx-skel vx-skel-table" />
+    </div>
+  );
+}
+

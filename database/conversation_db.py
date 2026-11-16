@@ -1,5 +1,6 @@
 import sqlite3
 import uuid
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -55,6 +56,12 @@ def create_conversation_tables():
         )
         """
     )
+
+    # Safe migration for existing databases; preserves all existing messages.
+    cursor.execute("PRAGMA table_info(messages)")
+    message_columns = {row["name"] for row in cursor.fetchall()}
+    if "metadata" not in message_columns:
+        cursor.execute("ALTER TABLE messages ADD COLUMN metadata TEXT")
 
     connection.commit()
     connection.close()
@@ -182,75 +189,59 @@ def get_conversation(conversation_id):
 def get_messages(conversation_id):
     connection = get_connection()
     cursor = connection.cursor()
-
     cursor.execute(
         """
-        SELECT
-            id,
-            conversation_id,
-            role,
-            message,
-            created_at
+        SELECT id, conversation_id, role, message, created_at, metadata
         FROM messages
         WHERE conversation_id = ?
         ORDER BY id ASC
         """,
         (str(conversation_id),),
     )
-
     rows = cursor.fetchall()
-
     connection.close()
 
-    return [dict(row) for row in rows]
+    result = []
+    for row in rows:
+        item = dict(row)
+        raw_metadata = item.get("metadata")
+        if raw_metadata:
+            try:
+                item["metadata"] = json.loads(raw_metadata)
+            except (TypeError, ValueError):
+                item["metadata"] = None
+        else:
+            item["metadata"] = None
+        result.append(item)
+    return result
 
 
 # ============================================================
 # SAVE MESSAGE
 # ============================================================
 
-def save_message(
-    conversation_id,
-    role,
-    message,
-):
+def save_message(conversation_id, role, message, metadata=None):
     conversation_id = str(conversation_id)
-
     connection = get_connection()
     cursor = connection.cursor()
-
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
     cursor.execute(
         """
-        INSERT INTO messages (
-            conversation_id,
-            role,
-            message,
-            created_at
-        )
-        VALUES (?, ?, ?, ?)
+        INSERT INTO messages (conversation_id, role, message, created_at, metadata)
+        VALUES (?, ?, ?, ?, ?)
         """,
         (
             conversation_id,
             role,
             str(message),
             now,
+            json.dumps(metadata, ensure_ascii=False, default=str) if metadata is not None else None,
         ),
     )
-
     cursor.execute(
-        """
-        UPDATE conversations
-        SET updated_at = ?
-        WHERE conversation_id = ?
-        """,
-        (
-            now,
-            conversation_id,
-        ),
+        "UPDATE conversations SET updated_at = ? WHERE conversation_id = ?",
+        (now, conversation_id),
     )
-
     connection.commit()
     connection.close()
 
